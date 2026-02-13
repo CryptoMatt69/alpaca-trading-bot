@@ -84,9 +84,16 @@ def webhook():
         else:
             return jsonify({"error": "Invalid side"}), 400
 
-        # Print and return order info safely
+        # ----------------------------
+        # Safely handle order ID for both Alpaca Order objects and dicts
         print(f"✅ Order processed: {side.upper()} {qty} {symbol}")
-        order_id = getattr(order, 'id', order.get('id', 'N/A') if order else 'N/A')
+        if hasattr(order, 'id'):
+            order_id = order.id
+        elif isinstance(order, dict) and 'id' in order:
+            order_id = order['id']
+        else:
+            order_id = 'N/A'
+
         return jsonify({"status": "success", "order_id": order_id})
 
     except Exception as e:
