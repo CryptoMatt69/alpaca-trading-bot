@@ -21,7 +21,7 @@ api = tradeapi.REST(API_KEY, API_SECRET, BASE_URL, api_version='v2')
 # Home route
 @app.route("/", methods=["GET"])
 def home():
-    return """You have awoken TradeClaw🤖... Welcome to the future of trading!\nComing Soon..."""
+    return "You have awoken TradeClaw🤖... Welcome to the future of trading!\nComing Soon..."
 
 # ----------------------------
 # Webhook route
@@ -37,23 +37,55 @@ def webhook():
 
     try:
         side_lower = side.lower()
+
+        # Buy
         if side_lower == "buy":
             order = api.submit_order(symbol=symbol, qty=qty, side="buy", type="market", time_in_force="gtc")
+
+        # Sell
         elif side_lower == "sell":
             order = api.submit_order(symbol=symbol, qty=qty, side="sell", type="market", time_in_force="gtc")
+
+        # Short (entry)
         elif side_lower == "short":
             order = api.submit_order(symbol=symbol, qty=qty, side="sell", type="market", time_in_force="gtc")
+
+        # Close Long safely
         elif side_lower == "close_long":
-            api.close_position(symbol)
-            order = {"id": "closed_long"}
+            try:
+                position = api.get_position(symbol)
+                if int(position.qty) > 0:
+                    api.close_position(symbol)
+                    order = {"id": "closed_long"}
+                    print(f"✅ Closed long position for {symbol}")
+                else:
+                    order = {"id": "none"}
+                    print(f"⚠️ No long position to close for {symbol}")
+            except tradeapi.rest.APIError:
+                order = {"id": "none"}
+                print(f"⚠️ No long position to close for {symbol}")
+
+        # Close Short safely
         elif side_lower == "close_short":
-            api.close_position(symbol)
-            order = {"id": "closed_short"}
+            try:
+                position = api.get_position(symbol)
+                if int(position.qty) < 0:
+                    api.close_position(symbol)
+                    order = {"id": "closed_short"}
+                    print(f"✅ Closed short position for {symbol}")
+                else:
+                    order = {"id": "none"}
+                    print(f"⚠️ No short position to close for {symbol}")
+            except tradeapi.rest.APIError:
+                order = {"id": "none"}
+                print(f"⚠️ No short position to close for {symbol}")
+
         else:
             return jsonify({"error": "Invalid side"}), 400
 
-        print(f"✅ Order executed: {side.upper()} {qty} {symbol}")
+        print(f"✅ Order processed: {side.upper()} {qty} {symbol}")
         return jsonify({"status": "success", "order_id": order.get('id', 'N/A')})
+
     except Exception as e:
         print("❌ Error:", e)
         return jsonify({"error": str(e)}), 500
