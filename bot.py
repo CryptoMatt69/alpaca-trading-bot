@@ -20,7 +20,7 @@ api = tradeapi.REST(API_KEY, API_SECRET, BASE_URL, api_version='v2')
 # Optional home route to test in browser
 @app.route("/", methods=["GET"])
 def home():
-    return "Bot is live! Use /webhook to place orders."
+    return "You have awoken Mr.Rizzbot!🤖 Use /webhook to place orders."
 
 # Webhook route for TradingView or curl
 @app.route("/webhook", methods=["POST"])
