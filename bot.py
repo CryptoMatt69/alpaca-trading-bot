@@ -1,4 +1,4 @@
-from dotenv import load_dotenv
+kfrom dotenv import load_dotenv
 import os
 from flask import Flask, request, jsonify
 import alpaca_trade_api as tradeapi
@@ -37,6 +37,7 @@ def webhook():
 
     try:
         side_lower = side.lower()
+        order = None  # Initialize order variable
 
         # Buy
         if side_lower == "buy":
@@ -83,8 +84,10 @@ def webhook():
         else:
             return jsonify({"error": "Invalid side"}), 400
 
+        # Print and return order info safely
         print(f"✅ Order processed: {side.upper()} {qty} {symbol}")
-        return jsonify({"status": "success", "order_id": order.get('id', 'N/A')})
+        order_id = getattr(order, 'id', order.get('id', 'N/A') if order else 'N/A')
+        return jsonify({"status": "success", "order_id": order_id})
 
     except Exception as e:
         print("❌ Error:", e)
@@ -95,5 +98,5 @@ def webhook():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5100))
     print("✅ TradeClaw running...🤖 Waiting for alerts.")
-    app.run(host="0.0.0.0", port=port)
+    app.run(host="0.0.0.0", port=port, threaded=True)
 
