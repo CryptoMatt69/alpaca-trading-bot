@@ -3,7 +3,6 @@ import os
 from flask import Flask, request, jsonify
 import alpaca_trade_api as tradeapi
 import threading
-import tkinter as tk
 
 # Load .env locally (ignored on Render)
 load_dotenv()
@@ -19,44 +18,55 @@ if not all([API_KEY, API_SECRET, BASE_URL]):
 
 api = tradeapi.REST(API_KEY, API_SECRET, BASE_URL, api_version='v2')
 
-# Function to show TradeClaw alert
+# -------------------------
+# TradeClaw Alert
+# -------------------------
 def show_tradeclaw_message():
-    root = tk.Tk()
-    root.title("TradeClaw Activated")
-    
-    # Center the window
-    screen_width = root.winfo_screenwidth()
-    screen_height = root.winfo_screenheight()
-    width = 600
-    height = 200
-    x = (screen_width // 2) - (width // 2)
-    y = (screen_height // 2) - (height // 2)
-    root.geometry(f"{width}x{height}+{x}+{y}")
-    
-    root.configure(bg="black")
-    
-    # Neon green label
-    label = tk.Label(
-        root, 
-        text="YOU HAVE AWOKEN TRADECLAW", 
-        font=("Courier", 30, "bold"), 
-        fg="#39FF14",  # neon green
-        bg="black"
-    )
-    label.pack(expand=True)
-    
-    # Close window after 3 seconds
-    root.after(3000, root.destroy)
-    root.mainloop()
+    # Only run GUI locally
+    if os.environ.get("RENDER") is None:
+        import tkinter as tk
+        root = tk.Tk()
+        root.title("TradeClaw Activated")
+        
+        # Center the window
+        screen_width = root.winfo_screenwidth()
+        screen_height = root.winfo_screenheight()
+        width = 600
+        height = 200
+        x = (screen_width // 2) - (width // 2)
+        y = (screen_height // 2) - (height // 2)
+        root.geometry(f"{width}x{height}+{x}+{y}")
+        
+        root.configure(bg="black")
+        
+        label = tk.Label(
+            root,
+            text="YOU HAVE AWOKEN TRADECLAW",
+            font=("Courier", 30, "bold"),
+            fg="#39FF14",  # neon green
+            bg="black"
+        )
+        label.pack(expand=True)
+        root.after(3000, root.destroy)
+        root.mainloop()
+    else:
+        # On Render just print to console
+        print("\n" + "*"*60)
+        print("YOU HAVE AWOKEN TRADECLAW".center(60))
+        print("*"*60 + "\n")
 
-# Optional home route to test in browser
+# Run the alert in a separate thread so Flask can start immediately
+threading.Thread(target=show_tradeclaw_message).start()
+
+# -------------------------
+# Routes
+# -------------------------
 @app.route("/", methods=["GET"])
 def home():
     return """You have awoken TradeClaw🤖... Welcome to the future of trading!
 
 Coming Soon!"""
 
-# Webhook route for TradingView or curl
 @app.route("/webhook", methods=["POST"])
 def webhook():
     data = request.get_json()
@@ -85,11 +95,10 @@ def webhook():
         print("❌ Error:", e)
         return jsonify({"error": str(e)}), 500
 
-# Run locally (ignored on Render)
+# -------------------------
+# Run Flask locally
+# -------------------------
 if __name__ == "__main__":
-    # Show TradeClaw alert in a separate thread so Flask still runs
-    threading.Thread(target=show_tradeclaw_message).start()
-    
     port = int(os.environ.get("PORT", 5100))
     app.run(host="0.0.0.0", port=port)
 
