@@ -2,6 +2,8 @@ from dotenv import load_dotenv
 import os
 from flask import Flask, request, jsonify
 import alpaca_trade_api as tradeapi
+import threading
+import tkinter as tk
 
 # Load .env locally (ignored on Render)
 load_dotenv()
@@ -16,6 +18,36 @@ if not all([API_KEY, API_SECRET, BASE_URL]):
     raise ValueError("Alpaca API keys or base URL not set in environment variables!")
 
 api = tradeapi.REST(API_KEY, API_SECRET, BASE_URL, api_version='v2')
+
+# Function to show TradeClaw alert
+def show_tradeclaw_message():
+    root = tk.Tk()
+    root.title("TradeClaw Activated")
+    
+    # Center the window
+    screen_width = root.winfo_screenwidth()
+    screen_height = root.winfo_screenheight()
+    width = 600
+    height = 200
+    x = (screen_width // 2) - (width // 2)
+    y = (screen_height // 2) - (height // 2)
+    root.geometry(f"{width}x{height}+{x}+{y}")
+    
+    root.configure(bg="black")
+    
+    # Neon green label
+    label = tk.Label(
+        root, 
+        text="YOU HAVE AWOKEN TRADECLAW", 
+        font=("Courier", 30, "bold"), 
+        fg="#39FF14",  # neon green
+        bg="black"
+    )
+    label.pack(expand=True)
+    
+    # Close window after 3 seconds
+    root.after(3000, root.destroy)
+    root.mainloop()
 
 # Optional home route to test in browser
 @app.route("/", methods=["GET"])
@@ -55,5 +87,9 @@ def webhook():
 
 # Run locally (ignored on Render)
 if __name__ == "__main__":
+    # Show TradeClaw alert in a separate thread so Flask still runs
+    threading.Thread(target=show_tradeclaw_message).start()
+    
     port = int(os.environ.get("PORT", 5100))
     app.run(host="0.0.0.0", port=port)
+
