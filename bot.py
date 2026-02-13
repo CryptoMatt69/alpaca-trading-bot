@@ -1,4 +1,4 @@
-kfrom dotenv import load_dotenv
+from dotenv import load_dotenv
 import os
 from flask import Flask, request, jsonify
 import alpaca_trade_api as tradeapi
