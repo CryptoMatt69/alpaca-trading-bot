@@ -1,4 +1,6 @@
 flask
 alpaca-trade-api
+python-dotenv
+requests
 gunicorn
 
