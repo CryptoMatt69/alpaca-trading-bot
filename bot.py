@@ -21,14 +21,14 @@ api = tradeapi.REST(API_KEY, API_SECRET, BASE_URL, api_version='v2')
 # Home route
 @app.route("/", methods=["GET"])
 def home():
-    return "✅ TradeClaw active and ready to receive alerts!"
+    return "✅ TradeClaw active and ready for frequent trading alerts!"
 
 # ----------------------------
 # Webhook route
 @app.route("/webhook", methods=["POST"])
 def webhook():
     data = request.get_json()
-    print("📩 Webhook received:", data)  # DEBUG: Show every alert received
+    print("📩 Webhook received:", data)  # DEBUG: show every alert
 
     symbol = data.get("symbol")
     qty = data.get("qty")
@@ -39,16 +39,16 @@ def webhook():
 
     try:
         side_lower = side.lower()
-        order = None  # Initialize order variable
+        order = None
 
         # ----------------------------
-        # BUY
+        # BUY (long entry)
         if side_lower == "buy":
             order = api.submit_order(
                 symbol=symbol, qty=qty, side="buy", type="market", time_in_force="gtc"
             )
 
-        # SELL
+        # SELL (manual market sell)
         elif side_lower == "sell":
             order = api.submit_order(
                 symbol=symbol, qty=qty, side="sell", type="market", time_in_force="gtc"
@@ -67,13 +67,13 @@ def webhook():
                 if int(position.qty) > 0:
                     api.close_position(symbol)
                     order = {"id": "closed_long"}
-                    print(f"✅ Closed long position for {symbol}")
+                    print(f"✅ Closed long for {symbol}")
                 else:
                     order = {"id": "none"}
-                    print(f"⚠️ No long position to close for {symbol}")
+                    print(f"⚠️ No long position to close {symbol}")
             except tradeapi.rest.APIError:
                 order = {"id": "none"}
-                print(f"⚠️ No long position to close for {symbol}")
+                print(f"⚠️ No long position to close {symbol}")
 
         # CLOSE SHORT
         elif side_lower == "close_short":
@@ -82,13 +82,13 @@ def webhook():
                 if int(position.qty) < 0:
                     api.close_position(symbol)
                     order = {"id": "closed_short"}
-                    print(f"✅ Closed short position for {symbol}")
+                    print(f"✅ Closed short for {symbol}")
                 else:
                     order = {"id": "none"}
-                    print(f"⚠️ No short position to close for {symbol}")
+                    print(f"⚠️ No short position to close {symbol}")
             except tradeapi.rest.APIError:
                 order = {"id": "none"}
-                print(f"⚠️ No short position to close for {symbol}")
+                print(f"⚠️ No short position to close {symbol}")
 
         else:
             return jsonify({"error": "Invalid side"}), 400
@@ -102,7 +102,9 @@ def webhook():
         else:
             order_id = 'N/A'
 
+        # Log the trade
         print(f"✅ Order processed: {side.upper()} {qty} {symbol} | Order ID: {order_id}")
+
         return jsonify({"status": "success", "order_id": order_id})
 
     except Exception as e:
@@ -113,6 +115,6 @@ def webhook():
 # Run server
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5100))
-    print(f"✅ TradeClaw running on port {port}... Waiting for alerts.")
+    print(f"✅ TradeClaw running on port {port}... Ready for high-frequency alerts.")
     app.run(host="0.0.0.0", port=port, threaded=True)
 
