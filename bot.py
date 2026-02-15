@@ -19,9 +19,10 @@ api = tradeapi.REST(API_KEY, API_SECRET, BASE_URL, api_version='v2')
 
 # ----------------------------
 # Home route
-@app.route("/", methods=["GET"])
-def home():
-    return "✅ TradeClaw active and ready for frequent trading alerts!"
+@app.route("/webhook", methods=["POST"])
+def webhook():
+    print("Webhook hit")
+    return {"✅ TradeClaw active and ready for frequent trading alerts!"}
 
 # ----------------------------
 # Webhook route
