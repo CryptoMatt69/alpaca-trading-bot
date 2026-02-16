@@ -29,7 +29,7 @@ def home():
         print("Clock error:", e)
         session_status = "UNKNOWN"
 
-    # Positions
+    # Current positions
     try:
         positions = api.list_positions()
         pos_html = ""
@@ -42,7 +42,7 @@ def home():
         print("Positions error:", e)
         pos_html = "Cannot fetch positions"
 
-    # Example PnL and recent trade - replace with dynamic logic
+    # Example PnL and recent trade
     pnl = "$1,245.33"
     recent_trade = "NFLX BUY 1"
 
@@ -223,8 +223,9 @@ def webhook():
 
 # ----------------------------
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT"))
+    port = int(os.environ.get("PORT", 5100))
     app.run(host="0.0.0.0", port=port)
+
 
 
 
