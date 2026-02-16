@@ -2,7 +2,6 @@ import os
 from flask import Flask, request, jsonify, render_template_string
 import alpaca_trade_api as tradeapi
 from dotenv import load_dotenv
-from datetime import datetime
 
 # ----------------------------
 # Load environment variables
@@ -124,7 +123,7 @@ canvas.width = window.innerWidth;
 const letters = "01ABCDEFGHIJKLMNOPQRSTUVWXYZ$#@%&*";
 const fontSize = 16;
 const columns = canvas.width / fontSize;
-const drops = Array.from({length: columns}, () => 1);
+const drops = Array.from({{length: columns}}, () => 1);
 
 function draw() {{
     ctx.fillStyle = "rgba(0, 0, 0, 0.05)";
@@ -226,6 +225,7 @@ def webhook():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT"))
     app.run(host="0.0.0.0", port=port)
+
 
 
 
