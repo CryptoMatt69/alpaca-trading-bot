@@ -1,12 +1,9 @@
 import streamlit as st
 import yfinance as yf
-import pandas as pd
-import numpy as np
-import plotly.graph_objects as go
 from datetime import datetime
 
 # ----------------------------
-# PAGE CONFIG (Fix Untitled)
+# PAGE CONFIG
 # ----------------------------
 st.set_page_config(
     page_title="TRADECLAW Terminal",
@@ -15,65 +12,29 @@ st.set_page_config(
 )
 
 # ----------------------------
-# CUSTOM CSS (Neon + Clean)
+# CUSTOM CSS (NEON + CLEAN)
 # ----------------------------
 st.markdown("""
 <style>
-
 html, body, [class*="css"]  {
     background-color: #0d0d0d;
     color: white;
 }
-
-/* HEADER */
-.main-header {
-    text-align: center;
-    padding-top: 10px;
-}
-
-.main-title {
-    font-size: 48px;
-    font-weight: 700;
-    color: #ff66ff;
-    text-shadow: 0 0 20px #ff66ff;
-    margin-bottom: 5px;
-}
-
-.subtitle {
-    font-size: 16px;
-    color: #cccccc;
-    margin-bottom: 30px;
-}
-
-/* Metric Cards */
-.metric-card {
-    background: #111111;
-    padding: 18px;
-    border-radius: 14px;
-    box-shadow: 0 0 14px rgba(255,0,255,0.15);
-    text-align: center;
-}
-
-.neon-green {
-    color: #ff66ff;
-    text-shadow: 0 0 8px #ff66ff;
-}
-
-.neon-red {
-    color: #ff1a1a;
-    text-shadow: 0 0 6px #ff1a1a;
-}
-
-/* Sidebar */
-section[data-testid="stSidebar"] {
-    background-color: #111111;
-}
-
+.main-header { text-align:center; padding-top:10px; }
+.main-title { font-size:48px; font-weight:700; color:#ff66ff; text-shadow:0 0 20px #ff66ff; margin-bottom:5px; }
+.subtitle { font-size:16px; color:#cccccc; margin-bottom:30px; }
+.metric-card { background:#111111; padding:18px; border-radius:14px; box-shadow:0 0 14px rgba(255,0,255,0.15); text-align:center; }
+.neon-green { color:#ff66ff; text-shadow:0 0 8px #ff66ff; }
+.neon-red { color:#ff1a1a; text-shadow:0 0 6px #ff1a1a; }
+section[data-testid="stSidebar"] { background-color: #111111; }
+iframe { border:none; border-radius:10px; margin-bottom:15px; }
+.chart-container { width:100%; height:450px; }
+.grid { display:grid; grid-template-columns:repeat(2,1fr); gap:10px; }
 </style>
 """, unsafe_allow_html=True)
 
 # ----------------------------
-# HEADER (RESTORED)
+# HEADER
 # ----------------------------
 st.markdown("""
 <div class="main-header">
@@ -88,176 +49,72 @@ st.markdown("""
 # SIDEBAR NAV
 # ----------------------------
 st.sidebar.title("📊 Navigation")
-
-page = st.sidebar.radio(
-    "Select Page",
-    ["Dashboard", "Performance", "Activity / Win Rate"]
-)
+page = st.sidebar.radio("Select Page", ["Dashboard", "Performance", "Activity / Win Rate"])
 
 single_stock = st.sidebar.text_input("Single Chart Ticker", "AAPL")
 multi_stocks = st.sidebar.text_input("Multi Chart Tickers (comma separated)", "AAPL,TSLA,NVDA")
 
 # ----------------------------
-# DATA
-# ----------------------------
-def get_stock_data(ticker):
-    return yf.download(ticker, period="6mo", interval="1d")
-
-# ============================
 # DASHBOARD
-# ============================
+# ----------------------------
 if page == "Dashboard":
-
     col1, col2, col3 = st.columns(3)
-
     equity = 100000
-    daily_pnl = np.random.uniform(-1500, 2000)
-    win_rate = np.random.uniform(45, 75)
-
+    daily_pnl = 1200  # example
+    win_rate = 65.5
     pnl_class = "neon-green" if daily_pnl > 0 else "neon-red"
 
-    col1.markdown(f"""
-        <div class="metric-card">
-            <h4>Total Equity</h4>
-            <h2 class="neon-green">${equity:,.2f}</h2>
-        </div>
-    """, unsafe_allow_html=True)
-
-    col2.markdown(f"""
-        <div class="metric-card">
-            <h4>Daily PnL</h4>
-            <h2 class="{pnl_class}">${daily_pnl:,.2f}</h2>
-        </div>
-    """, unsafe_allow_html=True)
-
-    col3.markdown(f"""
-        <div class="metric-card">
-            <h4>Win Rate</h4>
-            <h2 class="neon-green">{win_rate:.2f}%</h2>
-        </div>
-    """, unsafe_allow_html=True)
+    col1.markdown(f'<div class="metric-card"><h4>Total Equity</h4><h2 class="neon-green">${equity:,.2f}</h2></div>', unsafe_allow_html=True)
+    col2.markdown(f'<div class="metric-card"><h4>Daily PnL</h4><h2 class="{pnl_class}">${daily_pnl:,.2f}</h2></div>', unsafe_allow_html=True)
+    col3.markdown(f'<div class="metric-card"><h4>Win Rate</h4><h2 class="neon-green">{win_rate:.2f}%</h2></div>', unsafe_allow_html=True)
 
     st.markdown("### 📈 Single Stock Chart")
-
-    df = get_stock_data(single_stock)
-
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(
-        x=df.index,
-        y=df["Close"],
-        mode="lines",
-        line=dict(color="#ff66ff", width=2),
-        name=single_stock.upper()
-    ))
-
-    fig.update_layout(
-        template="plotly_dark",
-        plot_bgcolor="#0d0d0d",
-        paper_bgcolor="#0d0d0d",
-        height=400,
-        margin=dict(l=20, r=20, t=40, b=20)
-    )
-
-    st.plotly_chart(fig, use_container_width=True)
+    st.markdown(f"""
+    <div class="chart-container">
+    <iframe src="https://s.tradingview.com/widgetembed/?symbol=NASDAQ:{single_stock.upper()}&interval=15&theme=dark&studies=%5B%5D&toolbarbg=000000" width="100%" height="100%"></iframe>
+    </div>
+    """, unsafe_allow_html=True)
 
     st.markdown("### 📊 Multi Stock Comparison")
-
     tickers = [t.strip().upper() for t in multi_stocks.split(",")]
+    st.markdown('<div class="grid">', unsafe_allow_html=True)
+    for t in tickers:
+        st.markdown(f"""
+        <div class="chart-container">
+        <iframe src="https://s.tradingview.com/widgetembed/?symbol=NASDAQ:{t}&interval=15&theme=dark&studies=%5B%5D&toolbarbg=000000" width="100%" height="100%"></iframe>
+        </div>
+        """, unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
 
-    multi_fig = go.Figure()
-
-    for ticker in tickers:
-        data = get_stock_data(ticker)
-        multi_fig.add_trace(go.Scatter(
-            x=data.index,
-            y=data["Close"],
-            mode="lines",
-            name=ticker
-        ))
-
-    multi_fig.update_layout(
-        template="plotly_dark",
-        plot_bgcolor="#0d0d0d",
-        paper_bgcolor="#0d0d0d",
-        height=400
-    )
-
-    st.plotly_chart(multi_fig, use_container_width=True)
-
-# ============================
+# ----------------------------
 # PERFORMANCE
-# ============================
+# ----------------------------
 elif page == "Performance":
-
     st.markdown("## 📊 Performance Analytics")
+    st.markdown("""
+    <div class="metric-card">
+    <p>Sharpe Ratio: 1.25</p>
+    <p>Max Drawdown: -5.4%</p>
+    <p>Total Return: 12.3%</p>
+    <p>Total Trades: 128</p>
+    </div>
+    """, unsafe_allow_html=True)
 
-    returns = np.random.normal(0.001, 0.02, 120)
-    cumulative = np.cumsum(returns)
-    drawdown = cumulative - np.maximum.accumulate(cumulative)
+    st.markdown("### 📈 Equity Curve")
+    st.markdown("""
+    <div class="chart-container">
+    <iframe src="https://s.tradingview.com/widgetembed/?symbol=NASDAQ:AAPL&interval=60&theme=dark&studies=%5B%5D&toolbarbg=000000" width="100%" height="100%"></iframe>
+    </div>
+    """, unsafe_allow_html=True)
 
-    sharpe = np.mean(returns) / np.std(returns) * np.sqrt(252)
-    max_dd = np.min(drawdown) * 100
-    total_return = cumulative[-1] * 100
-
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Sharpe Ratio", f"{sharpe:.2f}")
-    col2.metric("Max Drawdown", f"{max_dd:.2f}%")
-    col3.metric("Total Return", f"{total_return:.2f}%")
-    col4.metric("Total Trades", "128")
-
-    perf_fig = go.Figure()
-    perf_fig.add_trace(go.Scatter(
-        y=cumulative,
-        mode="lines",
-        line=dict(color="#ff66ff"),
-        name="Equity Curve"
-    ))
-
-    perf_fig.update_layout(
-        template="plotly_dark",
-        plot_bgcolor="#0d0d0d",
-        paper_bgcolor="#0d0d0d",
-        height=420
-    )
-
-    st.plotly_chart(perf_fig, use_container_width=True)
-
-# ============================
-# ACTIVITY
-# ============================
+# ----------------------------
+# ACTIVITY / WIN RATE
+# ----------------------------
 elif page == "Activity / Win Rate":
-
     st.markdown("## 📈 Activity & Win Rate Trends")
-
-    days = pd.date_range(end=datetime.today(), periods=60)
-
-    activity = np.random.randint(1, 10, 60)
-    winrate = np.random.uniform(40, 80, 60)
-
-    fig = go.Figure()
-
-    fig.add_trace(go.Scatter(
-        x=days,
-        y=activity,
-        mode="lines",
-        name="Trades Per Day",
-        line=dict(color="#ff66ff")
-    ))
-
-    fig.add_trace(go.Scatter(
-        x=days,
-        y=winrate,
-        mode="lines",
-        name="Win Rate %",
-        line=dict(color="#ff1a1a")
-    ))
-
-    fig.update_layout(
-        template="plotly_dark",
-        plot_bgcolor="#0d0d0d",
-        paper_bgcolor="#0d0d0d",
-        height=450
-    )
-
-    st.plotly_chart(fig, use_container_width=True)
-
+    # Since we’re not using Plotly, just show placeholder TradingView chart (could be replaced with actual performance data)
+    st.markdown("""
+    <div class="chart-container">
+    <iframe src="https://s.tradingview.com/widgetembed/?symbol=NASDAQ:AAPL&interval=1D&theme=dark&studies=%5B%5D&toolbarbg=000000" width="100%" height="100%"></iframe>
+    </div>
+    """, unsafe_allow_html=True)
