@@ -3,6 +3,7 @@ import datetime
 from flask import Flask, request, jsonify
 import alpaca_trade_api as tradeapi
 from dotenv import load_dotenv
+import pytz
 
 # ----------------------------
 # Load environment variables
@@ -24,9 +25,31 @@ trade_log = []
 last_trade_side = None
 
 ORCHID = "#DA70D6"
-INTER_MIAMI_PINK = "#FF69B4"
+INTER_MIAMI_PINK = "#FF77B5"  # slightly lighter pink
 MEDIUM_GRAY = "#808080"
-BLACK = "#000000"
+
+def get_est_time_and_session():
+    """Return current time in EST and session label"""
+    tz = pytz.timezone("US/Eastern")
+    now = datetime.datetime.now(tz)
+    time_str = now.strftime("%Y-%m-%d %I:%M:%S %p")
+
+    # Market session times in EST
+    pre_market_start = now.replace(hour=4, minute=0, second=0)
+    regular_start = now.replace(hour=9, minute=30, second=0)
+    regular_end = now.replace(hour=16, minute=0, second=0)
+    after_hours_end = now.replace(hour=20, minute=0, second=0)
+
+    if pre_market_start <= now < regular_start:
+        session = "Pre-Market"
+    elif regular_start <= now <= regular_end:
+        session = "Regular Market"
+    elif regular_end < now <= after_hours_end:
+        session = "After-Hours"
+    else:
+        session = "Market Closed"
+
+    return time_str, session
 
 # ----------------------------
 @app.route("/", methods=["GET"])
@@ -51,6 +74,8 @@ def home():
 
     last_trade_display = trade_log[-1] if trade_log else "No trades yet"
 
+    est_time, session_label = get_est_time_and_session()
+
     return f"""
 <html>
 <head>
@@ -63,16 +88,19 @@ body {{
     overflow-x:hidden;
     background:black;
 }}
+
 canvas {{
     position:fixed;
     top:0;
     left:0;
     z-index:-1;
 }}
+
 .container {{
     padding:40px;
     text-align:center;
 }}
+
 .card {{
     margin:auto;
     padding:30px;
@@ -82,37 +110,59 @@ canvas {{
     animation:glow 2s infinite alternate;
     box-shadow:0 0 25px {ORCHID};
 }}
+
 @keyframes glow {{
     from {{ box-shadow: 0 0 15px {ORCHID}; }}
     to {{ box-shadow: 0 0 35px {ORCHID}; }}
 }}
+
 .flash {{
     animation:flash 0.6s;
 }}
+
 @keyframes flash {{
     0% {{ background:{flash_color}; }}
     100% {{ background:#111; }}
 }}
+
 .metric {{
     font-size:18px;
     margin:8px 0;
 }}
+
 .positive {{ color:#00ff99; }}
 .negative {{ color:#ff3b3b; }}
+
+iframe {{
+    margin-top:30px;
+    border-radius:20px;
+    box-shadow:0 0 30px {ORCHID};
+}}
+
+/* Highlighted message under Server Time */
 .highlight-msg {{
     color:{INTER_MIAMI_PINK};
     font-size:16px;
     font-weight:bold;
     margin-top:12px;
     padding:10px;
-    background:rgba(255,105,180,0.1);
+    background:rgba(255,119,181,0.1);
     border-radius:8px;
     letter-spacing:0.5px;
+    text-shadow: 0 0 5px {INTER_MIAMI_PINK}, 0 0 10px {INTER_MIAMI_PINK};
+    animation: pulse 2s infinite alternate;
 }}
-iframe {{
-    margin-top:30px;
-    border-radius:20px;
-    box-shadow:0 0 30px {ORCHID};
+
+@keyframes pulse {{
+    0% {{
+        text-shadow: 0 0 5px {INTER_MIAMI_PINK}, 0 0 10px {INTER_MIAMI_PINK};
+    }}
+    50% {{
+        text-shadow: 0 0 8px {INTER_MIAMI_PINK}, 0 0 15px {INTER_MIAMI_PINK};
+    }}
+    100% {{
+        text-shadow: 0 0 5px {INTER_MIAMI_PINK}, 0 0 10px {INTER_MIAMI_PINK};
+    }}
 }}
 </style>
 </head>
@@ -123,19 +173,24 @@ iframe {{
 <div class="container">
     <div class="card flash">
         <h1 style="color:{ORCHID}; margin-bottom:5px;">🤖 TradeClaw</h1>
-        <div style="color:#00ff99; font-size:20px; margin-bottom:10px;">LIVE & READY</div>
+
+        <div style="color:#00ff99; font-size:20px;">LIVE & READY</div>
+
         <div class="metric">💰 Equity: ${equity:,.2f}</div>
         <div class="metric">⚡ Buying Power: ${buying_power:,.2f}</div>
+
         <div class="metric">
             📈 Live PnL:
             <span class="{{ 'positive' if pnl >= 0 else 'negative' }}">
                 ${pnl:,.2f}
             </span>
         </div>
+
         <div class="metric">🔔 Last Trade: {last_trade_display}</div>
-        <div class="metric" style="opacity:0.6;">
-            Server Time: {datetime.datetime.utcnow()} UTC
+        <div class="metric" style="opacity:0.9;">
+            Server Time (EST): {est_time} — {session_label}
         </div>
+
         <div class="highlight-msg">
             The future of trading, automation with tested results.
         </div>
@@ -146,14 +201,14 @@ iframe {{
         %22paneProperties.background%22%3A%22%23808080%22%2C
         %22paneProperties.vertGridProperties.color%22%3A%22transparent%22%2C
         %22paneProperties.horzGridProperties.color%22%3A%22transparent%22%2C
-        %22mainSeriesProperties.candleStyle.upColor%22%3A%22%23FF69B4%22%2C
+        %22mainSeriesProperties.candleStyle.upColor%22%3A%22%23FF77B5%22%2C
         %22mainSeriesProperties.candleStyle.downColor%22%3A%22%23000000%22%2C
-        %22mainSeriesProperties.candleStyle.borderUpColor%22%3A%22%23FF69B4%22%2C
+        %22mainSeriesProperties.candleStyle.borderUpColor%22%3A%22%23FF77B5%22%2C
         %22mainSeriesProperties.candleStyle.borderDownColor%22%3A%22%23000000%22%2C
         %22mainSeriesProperties.candleStyle.wickUpColor%22%3A%22%23000000%22%2C
         %22mainSeriesProperties.candleStyle.wickDownColor%22%3A%22%23000000%22%2C
-        %22mainSeriesProperties.volume.volume.color.0%22%3A%22%23FF69B4%22%2C
-        %22mainSeriesProperties.volume.volume.color.1%22%3A%22%23000000%22
+        %22volume.volume.color.0%22%3A%22%23FF77B5%22%2C
+        %22volume.volume.color.1%22%3A%22%23000000%22
         %7D"
         width="950"
         height="550"
@@ -167,26 +222,39 @@ iframe {{
 // MATRIX BACKGROUND EFFECT
 var canvas = document.getElementById("matrix");
 var ctx = canvas.getContext("2d");
+
 canvas.height = window.innerHeight;
 canvas.width = window.innerWidth;
-var letters = "01TRADECLAWBOT".split("");
+
+var letters = "01TRADECLAWBOT";
+letters = letters.split("");
+
 var fontSize = 14;
 var columns = canvas.width/fontSize;
 var drops = [];
-for(var x = 0; x < columns; x++) drops[x] = 1;
+
+for(var x = 0; x < columns; x++)
+    drops[x] = 1;
+
 function draw() {{
-    ctx.fillStyle = "rgba(0,0,0,0.05)";
-    ctx.fillRect(0,0,canvas.width,canvas.height);
-    ctx.fillStyle="#00ff00";
-    ctx.font=fontSize+"px monospace";
-    for(var i=0;i<drops.length;i++) {{
-        var text=letters[Math.floor(Math.random()*letters.length)];
-        ctx.fillText(text,i*fontSize,drops[i]*fontSize);
-        if(drops[i]*fontSize>canvas.height && Math.random()>0.975) drops[i]=0;
+    ctx.fillStyle = "rgba(0, 0, 0, 0.05)";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    ctx.fillStyle = "#00ff00";
+    ctx.font = fontSize + "px monospace";
+
+    for(var i = 0; i < drops.length; i++) {{
+        var text = letters[Math.floor(Math.random()*letters.length)];
+        ctx.fillText(text, i*fontSize, drops[i]*fontSize);
+
+        if(drops[i]*fontSize > canvas.height && Math.random() > 0.975)
+            drops[i] = 0;
+
         drops[i]++;
     }}
 }}
-setInterval(draw,33);
+
+setInterval(draw, 33);
 </script>
 
 </body>
@@ -199,34 +267,45 @@ def webhook():
     global last_trade_side
     try:
         data = request.get_json()
+
         symbol = data.get("symbol")
         qty = data.get("qty")
         side = data.get("side")
+
         if not all([symbol, qty, side]):
             return jsonify({"error": "Missing parameters"}), 400
+
         side_lower = side.lower()
         order = None
+
         if side_lower == "buy":
             order = api.submit_order(symbol=symbol, qty=qty, side="buy", type="market", time_in_force="gtc")
             last_trade_side = "buy"
+
         elif side_lower == "sell":
             order = api.submit_order(symbol=symbol, qty=qty, side="sell", type="market", time_in_force="gtc")
             last_trade_side = "sell"
+
         elif side_lower == "short":
             order = api.submit_order(symbol=symbol, qty=qty, side="sell", type="market", time_in_force="gtc")
             last_trade_side = "short"
+
         elif side_lower == "close_long":
             api.close_position(symbol)
             last_trade_side = "sell"
             return jsonify({"status": "closed_long"})
+
         elif side_lower == "close_short":
             api.close_position(symbol)
             last_trade_side = "buy"
             return jsonify({"status": "closed_short"})
+
         else:
             return jsonify({"error": "Invalid side"}), 400
+
         trade_log.append(f"{symbol} {side.upper()} {qty}")
         return jsonify({"status": "success", "order_id": order.id})
+
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
