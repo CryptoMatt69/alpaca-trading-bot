@@ -2,7 +2,6 @@ import os
 from flask import Flask, request, jsonify, render_template_string
 import alpaca_trade_api as tradeapi
 from dotenv import load_dotenv
-from datetime import datetime
 
 # ----------------------------
 # Load environment variables
@@ -33,7 +32,7 @@ def home():
     pnl = "$1,245.33"
     recent_trade = "NFLX BUY 1"
 
-    # Current positions for the new box under chart
+    # Current positions for box under chart
     try:
         positions = api.list_positions()
         pos_html = ""
@@ -75,13 +74,18 @@ canvas {{
     text-shadow: 0 0 20px #ff2bd6;
 }}
 .stats {{
-    margin-top: 10px;
-    margin-bottom: 20px;
+    margin-bottom: 10px;
     font-size: 16px;
 }}
 .stat-box {{
     display: inline-block;
     margin-right: 25px;
+}}
+.stats-message {{
+    font-size: 18px;
+    color: #ff2bd6;
+    text-shadow: 0 0 15px #ff2bd6;
+    margin-bottom: 20px;
 }}
 #chart {{
     height: 600px;
@@ -103,23 +107,29 @@ canvas {{
 <div class="container">
     <div class="title">TradeClaw</div>
 
+    <!-- TOP STATS -->
     <div class="stats">
         <div class="stat-box">PnL: {pnl}</div>
         <div class="stat-box">Recent Trade: {recent_trade}</div>
         <div class="stat-box">Trading Session: {session_status}</div>
     </div>
 
-    <!-- TradingView Widget -->
+    <!-- NEON TAGLINE -->
+    <div class="stats-message">Automated trades, proven results.</div>
+
+    <!-- TRADINGVIEW CHART -->
     <div id="chart">
-        <iframe src="https://s.tradingview.com/widgetembed/?symbol=NASDAQ%3ANFLX&interval=15&hidesidetoolbar=1&symboledit=1&saveimage=1&toolbarbg=000000&studies=[]&theme=dark&style=1"
+        <iframe 
+            src="https://s.tradingview.com/widgetembed/?frameElementId=tradingview_12345&symbol=NASDAQ%3ANFLX&interval=15&hidesidetoolbar=1&symboledit=1&saveimage=1&toolbarbg=000000&studies=[]&theme=dark&style=1&timezone=Etc%2FUTC&studies_overrides={{'volume.volume.color.0':'#DA70D6','volume.volume.color.1':'#000000','volume.volume.transparency':0,'volume.volume ma.color':'#DA70D6','mainSeriesProperties.candleStyle.upColor':'#DA70D6','mainSeriesProperties.candleStyle.downColor':'#000000','mainSeriesProperties.candleStyle.wickUpColor':'#000000','mainSeriesProperties.candleStyle.wickDownColor':'#000000'}}"
             style="width:100%; height:600px; border:0;" allowtransparency="true" frameborder="0"></iframe>
     </div>
 
-    <!-- NEW: Current Positions Box -->
+    <!-- CURRENT POSITIONS -->
     <div id="positions-box">
         <strong>Current Positions:</strong><br>
         {pos_html}
     </div>
+
 </div>
 
 <script>
@@ -132,9 +142,8 @@ canvas.width = window.innerWidth;
 
 const letters = "01ABCDEFGHIJKLMNOPQRSTUVWXYZ$#@%&*";
 const fontSize = 16;
-const columns = canvas.width / fontSize;
-const drops = [];
-for (let x = 0; x < columns; x++) drops[x] = 1;
+const columns = Math.floor(canvas.width / fontSize);
+const drops = Array(columns).fill(1);
 
 function draw() {{
     ctx.fillStyle = "rgba(0, 0, 0, 0.05)";
