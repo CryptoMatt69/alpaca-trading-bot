@@ -26,8 +26,8 @@ def home():
     # ---------------- Dynamic session
     try:
         clock = api.get_clock()
-        est_now = datetime.now(pytz.timezone("US/Eastern")).strftime("%H:%M:%S EST")
-        session_status = f"{'OPEN 🟢' if clock.is_open else 'CLOSED 🔴'} {est_now}"
+        est_now = datetime.now(pytz.timezone("US/Eastern")).strftime("%I:%M:%S %p EST")
+        session_status = f"{'OPEN 🟢' if clock.is_open else 'CLOSED 🔴'} ({est_now})"
     except:
         session_status = "UNKNOWN"
 
@@ -56,69 +56,82 @@ def home():
     except:
         pos_html = "Cannot fetch positions"
 
-    # ---------------- HTML PAGE
-    page = r"""
+    page = f"""
 <!DOCTYPE html>
 <html>
 <head>
 <title>TradeClaw Terminal</title>
 <style>
-body {
+/* ---------------------- Base Styles ---------------------- */
+body {{
     margin: 0;
     overflow: hidden;
     background: black;
     font-family: monospace;
     color: #ff2bd6;
-}
-canvas {
+}}
+canvas {{
     position: fixed;
     top: 0;
     left: 0;
     z-index: 0;
-}
-.container {
+}}
+.container {{
     position: relative;
     z-index: 1;
-    padding: 15px;
-}
-.title {
-    font-size: 52px;
+    padding: 10px;
+    max-width: 1400px;
+    margin: auto;
+}}
+.title {{
+    font-size: 56px;
     font-weight: 900;
     color: #ff2bd6;
-    text-shadow: 0 0 25px #ff2bd6;
-}
-.glow-box {
+    text-shadow: 0 0 30px #ff2bd6, 0 0 60px #ff2bd6;
+    margin-bottom: 15px;
+}}
+.glow-box {{
     border: 2px solid #ff2bd6;
-    box-shadow: 0 0 20px #ff2bd6;
+    box-shadow: 0 0 25px #ff2bd6, 0 0 50px #ff2bd6 inset;
     padding: 15px;
     margin-bottom: 15px;
-    background: rgba(0,0,0,0.8);
-}
-.stat-box {
+    background: rgba(0,0,0,0.85);
+    transition: box-shadow 0.5s ease;
+}}
+.glow-box:hover {{
+    box-shadow: 0 0 40px #ff2bd6, 0 0 80px #ff2bd6 inset;
+}}
+.stat-box {{
     display: block;
     margin: 5px 0;
     font-size: 16px;
-}
-#chart {
+}}
+#chart {{
     height: 500px;
     border: 2px solid #ff2bd6;
-    box-shadow: 0 0 20px #ff2bd6;
-}
-#positions-box {
+    box-shadow: 0 0 25px #ff2bd6;
+}}
+#positions-box {{
     margin-top: 15px;
     padding: 15px;
     border: 2px solid #ff2bd6;
-    box-shadow: 0 0 20px #ff2bd6;
-    background: rgba(0,0,0,0.8);
+    box-shadow: 0 0 25px #ff2bd6;
+    background: rgba(0,0,0,0.85);
     font-size: 16px;
-}
-.message-box {
+}}
+.message-box {{
     margin-top: 10px;
-    font-size: 18px;
+    font-size: 20px;
     text-align: center;
     color: #00ff00;
-    text-shadow: 0 0 10px #00ff00;
-}
+    text-shadow: 0 0 15px #00ff00, 0 0 30px #00ff00;
+    animation: pulse 2s infinite;
+}}
+@keyframes pulse {{
+    0% {{ text-shadow: 0 0 15px #00ff00, 0 0 30px #00ff00; }}
+    50% {{ text-shadow: 0 0 25px #00ff00, 0 0 50px #00ff00; }}
+    100% {{ text-shadow: 0 0 15px #00ff00, 0 0 30px #00ff00; }}
+}}
 </style>
 </head>
 <body>
@@ -129,61 +142,80 @@ canvas {
     <div class="title">🤖 TradeClaw</div>
 
     <div class="glow-box">
-        <div class="stat-box">PnL: {{pnl}}</div>
-        <div class="stat-box">Recent Trade: {{recent_trade}}</div>
-        <div class="stat-box">Trading Session: {{session_status}}</div>
+        <div class="stat-box">PnL: {pnl}</div>
+        <div class="stat-box">Recent Trade: {recent_trade}</div>
+        <div class="stat-box">Trading Session: {session_status}</div>
         <div class="message-box">Automated trades, Proven results.</div>
     </div>
 
-    <!-- TRADINGVIEW CHART -->
-    <div id="chart">
-        <iframe 
-            src="https://s.tradingview.com/widgetembed/?frameElementId=tradingview_12345&symbol=NASDAQ%3ANFLX&interval=15&hidesidetoolbar=1&symboledit=1&saveimage=1&toolbarbg=000000&studies=[]&theme=dark&style=1&timezone=Etc%2FUTC&studies_overrides=%7B'volume.volume.color.0':'#DA70D6','volume.volume.color.1':'#000000','volume.volume.transparency':0,'volume.volume ma.color':'#DA70D6','mainSeriesProperties.candleStyle.upColor':'#DA70D6','mainSeriesProperties.candleStyle.downColor':'#000000','mainSeriesProperties.candleStyle.wickUpColor':'#000000','mainSeriesProperties.candleStyle.wickDownColor':'#000000'%7D"
-            style="width:100%; height:500px;" allowtransparency="true" frameborder="0"></iframe>
-    </div>
-
+    <!-- TRADINGVIEW LIGHTWEIGHT CHART -->
+    <div id="chart" class="glow-box"></div>
+    
     <!-- CURRENT POSITIONS -->
     <div id="positions-box" class="glow-box">
         <strong>Current Positions:</strong><br>
-        {{pos_html}}
+        {pos_html}
     </div>
 </div>
 
+<!-- ---------------- MATRIX RAIN ---------------- -->
 <script>
-// MATRIX GREEN RAIN
 const canvas = document.getElementById("matrix");
 const ctx = canvas.getContext("2d");
 canvas.height = window.innerHeight;
 canvas.width = window.innerWidth;
 const letters = "01ABCDEFGHIJKLMNOPQRSTUVWXYZ$#@%&*";
 const fontSize = 14;
-const columns = Math.floor(canvas.width / fontSize);
+const columns = canvas.width / fontSize;
 const drops = Array.from({length: columns}, () => 1);
-
-function draw() {
+function draw() {{
     ctx.fillStyle = "rgba(0, 0, 0, 0.05)";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.fillStyle = "#00ff00";
     ctx.font = fontSize + "px monospace";
-    for (let i = 0; i < drops.length; i++) {
+    for (let i = 0; i < drops.length; i++) {{
         const text = letters[Math.floor(Math.random() * letters.length)];
         ctx.fillText(text, i * fontSize, drops[i] * fontSize);
         if (drops[i] * fontSize > canvas.height && Math.random() > 0.975) drops[i] = 0;
         drops[i]++;
-    }
-}
+    }}
+}}
 setInterval(draw, 35);
 </script>
+
+<!-- ---------------- TRADINGVIEW LIGHTWEIGHT WIDGET ---------------- -->
+<script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
+<script type="text/javascript">
+new TradingView.widget({{
+  "width": "100%",
+  "height": 500,
+  "symbol": "NASDAQ:NFLX",
+  "interval": "15",
+  "timezone": "Etc/UTC",
+  "theme": "dark",
+  "style": "1",
+  "locale": "en",
+  "container_id": "chart",
+  "hide_side_toolbar": true,
+  "allow_symbol_change": true,
+  "studies": [],
+  "withdateranges": true,
+  "overrides": {{
+    "mainSeriesProperties.candleStyle.upColor": "#DA70D6",
+    "mainSeriesProperties.candleStyle.downColor": "#000000",
+    "mainSeriesProperties.candleStyle.wickUpColor": "#000000",
+    "mainSeriesProperties.candleStyle.wickDownColor": "#000000",
+    "volume.volume.color.0": "#DA70D6",
+    "volume.volume.color.1": "#000000",
+    "volume.volume.transparency": 0
+  }}
+}});
+</script>
+
 </body>
 </html>
     """
-
-    # Render with Flask variables
-    return render_template_string(page,
-                                  pnl=pnl,
-                                  recent_trade=recent_trade,
-                                  session_status=session_status,
-                                  pos_html=pos_html)
+    return render_template_string(page)
 
 # ----------------------------
 # WEBHOOK
@@ -230,3 +262,4 @@ def webhook():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5100))
     app.run(host="0.0.0.0", port=port)
+
