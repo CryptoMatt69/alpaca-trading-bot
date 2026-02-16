@@ -23,7 +23,135 @@ api = tradeapi.REST(API_KEY, API_SECRET, BASE_URL, api_version="v2")
 # Home route
 @app.route("/", methods=["GET"])
 def home():
-    # ---------------- Dynamic session
+    page = """
+<!DOCTYPE html>
+<html>
+<head>
+<title>TradeClaw Terminal</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap');
+
+body {
+    margin: 0;
+    font-family: 'Roboto Mono', monospace;
+    background: linear-gradient(to right, #0f0c29, #302b63, #24243e);
+    color: #fff;
+    overflow-x: hidden;
+}
+
+.container {
+    max-width: 1200px;
+    margin: 20px auto;
+    padding: 10px;
+}
+
+.title {
+    font-size: 60px;
+    font-weight: 900;
+    text-align: center;
+    background: linear-gradient(90deg, #ff2bd6, #ff7f50);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin-bottom: 30px;
+}
+
+.card {
+    background: rgba(0,0,0,0.75);
+    border-radius: 15px;
+    padding: 20px;
+    margin-bottom: 20px;
+    box-shadow: 0 0 30px rgba(255, 43, 214, 0.5);
+}
+
+.card h2 {
+    margin-top: 0;
+    font-size: 24px;
+    color: #ff2bd6;
+}
+
+.stat {
+    font-size: 18px;
+    margin: 5px 0;
+}
+
+#chart {
+    width: 100%;
+    height: 500px;
+    border-radius: 15px;
+    overflow: hidden;
+    box-shadow: 0 0 30px rgba(255, 43, 214, 0.5);
+    margin-bottom: 20px;
+}
+
+.message-box {
+    text-align: center;
+    font-size: 20px;
+    color: #00ff00;
+    text-shadow: 0 0 10px #00ff00;
+    margin-top: 10px;
+}
+
+</style>
+</head>
+<body>
+
+<div class="container">
+    <div class="title">🤖 TradeClaw</div>
+
+    <div class="card">
+        <h2>Account Overview</h2>
+        <div class="stat">PnL: <span id="pnl">Loading...</span></div>
+        <div class="stat">Recent Trade: <span id="recent_trade">Loading...</span></div>
+        <div class="stat">Trading Session: <span id="session_status">Loading...</span></div>
+        <div class="message-box">Automated trades, Proven results.</div>
+    </div>
+
+    <div id="chart">
+        <iframe 
+            src="https://s.tradingview.com/widgetembed/?frameElementId=tradingview_12345&symbol=NASDAQ%3ANFLX&interval=15&hidesidetoolbar=1&symboledit=1&saveimage=1&toolbarbg=000000&studies=[]&theme=dark&style=1&timezone=Etc%2FUTC"
+            style="width:100%; height:100%;" allowtransparency="true" frameborder="0"></iframe>
+    </div>
+
+    <div class="card">
+        <h2>Current Positions</h2>
+        <div id="positions_box">Loading...</div>
+    </div>
+</div>
+
+<script>
+async function fetchData() {
+    try {
+        const res = await fetch('/api/stats');
+        const data = await res.json();
+        document.getElementById('pnl').innerText = data.pnl;
+        document.getElementById('recent_trade').innerText = data.recent_trade;
+        document.getElementById('session_status').innerText = data.session_status;
+
+        const posBox = document.getElementById('positions_box');
+        if(data.positions.length === 0){
+            posBox.innerHTML = "No open positions";
+        } else {
+            posBox.innerHTML = data.positions.map(p => `${p.symbol}: ${p.side} ${p.qty} @ $${p.avg_entry_price}`).join('<br>');
+        }
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+// Fetch every 5 seconds
+fetchData();
+setInterval(fetchData, 5000);
+</script>
+</body>
+</html>
+    """
+    return render_template_string(page)
+
+# ----------------------------
+# API route for live stats
+@app.route("/api/stats", methods=["GET"])
+def api_stats():
+    # Session status
     try:
         clock = api.get_clock()
         est_now = datetime.now(pytz.timezone("US/Eastern")).strftime("%H:%M:%S EST")
@@ -31,152 +159,41 @@ def home():
     except:
         session_status = "UNKNOWN"
 
-    # ---------------- Dynamic stats
+    # Account PnL and recent trade
     try:
         account = api.get_account()
         pnl = f"${float(account.equity) - float(account.cash):,.2f}"
-        recent_trade = "N/A"
         trades = api.list_orders(status='closed', limit=1, order_by='created_at', direction='desc')
         if trades:
             t = trades[0]
             recent_trade = f"{t.symbol} {t.side.upper()} {t.filled_qty}"
+        else:
+            recent_trade = "N/A"
     except:
         pnl = "$0.00"
         recent_trade = "N/A"
 
-    # ---------------- Current positions
+    # Positions
+    pos_list = []
     try:
         positions = api.list_positions()
-        pos_html = ""
         for p in positions:
-            side = "LONG" if int(p.qty) > 0 else "SHORT"
-            pos_html += f"{p.symbol}: {side} {abs(int(p.qty))} @ ${p.avg_entry_price}<br>"
-        if not pos_html:
-            pos_html = "No open positions"
+            side = "LONG" if float(p.qty) > 0 else "SHORT"
+            pos_list.append({
+                "symbol": p.symbol,
+                "qty": abs(float(p.qty)),
+                "avg_entry_price": p.avg_entry_price,
+                "side": side
+            })
     except:
-        pos_html = "Cannot fetch positions"
+        pos_list = []
 
-    page = f"""
-<!DOCTYPE html>
-<html>
-<head>
-<title>TradeClaw Terminal</title>
-<style>
-body {{
-    margin: 0;
-    overflow: hidden;
-    background: black;
-    font-family: monospace;
-    color: #ff2bd6;
-}}
-canvas {{
-    position: fixed;
-    top: 0;
-    left: 0;
-    z-index: 0;
-}}
-.container {{
-    position: relative;
-    z-index: 1;
-    padding: 10px;
-}}
-.title {{
-    font-size: 52px;
-    font-weight: 900;
-    color: #ff2bd6;
-    text-shadow: 0 0 30px #ff2bd6;
-}}
-.glow-box {{
-    border: 2px solid #ff2bd6;
-    box-shadow: 0 0 20px #ff2bd6;
-    padding: 15px;
-    margin-bottom: 15px;
-    background: rgba(0,0,0,0.8);
-}}
-.stat-box {{
-    display: block;
-    margin: 5px 0;
-    font-size: 16px;
-}}
-#chart {{
-    height: 500px;
-    border: 2px solid #ff2bd6;
-    box-shadow: 0 0 20px #ff2bd6;
-}}
-#positions-box {{
-    margin-top: 15px;
-    padding: 15px;
-    border: 2px solid #ff2bd6;
-    box-shadow: 0 0 20px #ff2bd6;
-    background: rgba(0,0,0,0.8);
-    font-size: 16px;
-}}
-.message-box {{
-    margin-top: 10px;
-    font-size: 18px;
-    text-align: center;
-    color: #00ff00;
-    text-shadow: 0 0 10px #00ff00;
-}}
-</style>
-</head>
-<body>
-
-<canvas id="matrix"></canvas>
-
-<div class="container">
-    <div class="title">🤖 TradeClaw</div>
-
-    <div class="glow-box">
-        <div class="stat-box">PnL: {pnl}</div>
-        <div class="stat-box">Recent Trade: {recent_trade}</div>
-        <div class="stat-box">Trading Session: {session_status}</div>
-        <div class="message-box">Automated trades, Proven results.</div>
-    </div>
-
-    <!-- TRADINGVIEW CHART -->
-    <div id="chart">
-        <iframe 
-            src="https://s.tradingview.com/widgetembed/?frameElementId=tradingview_12345&symbol=NASDAQ%3ANFLX&interval=15&hidesidetoolbar=1&symboledit=1&saveimage=1&toolbarbg=000000&studies=[]&theme=dark&style=1&timezone=Etc%2FUTC&studies_overrides={{'volume.volume.color.0':'#DA70D6','volume.volume.color.1':'#000000','volume.volume.transparency':0,'volume.volume ma.color':'#DA70D6','mainSeriesProperties.candleStyle.upColor':'#DA70D6','mainSeriesProperties.candleStyle.downColor':'#000000','mainSeriesProperties.candleStyle.wickUpColor':'#000000','mainSeriesProperties.candleStyle.wickDownColor':'#000000'}}"
-            style="width:100%; height:500px;" allowtransparency="true" frameborder="0"></iframe>
-    </div>
-
-    <!-- CURRENT POSITIONS -->
-    <div id="positions-box" class="glow-box">
-        <strong>Current Positions:</strong><br>
-        {pos_html}
-    </div>
-</div>
-
-<script>
-// MATRIX GREEN RAIN
-const canvas = document.getElementById("matrix");
-const ctx = canvas.getContext("2d");
-canvas.height = window.innerHeight;
-canvas.width = window.innerWidth;
-const letters = "01ABCDEFGHIJKLMNOPQRSTUVWXYZ$#@%&*";
-const fontSize = 14;
-const columns = Math.floor(canvas.width / fontSize);
-const drops = Array.from({{length: columns}}, () => 1);
-
-function draw() {{
-    ctx.fillStyle = "rgba(0, 0, 0, 0.05)";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = "#00ff00";
-    ctx.font = fontSize + "px monospace";
-    for (let i = 0; i < drops.length; i++) {{
-        const text = letters[Math.floor(Math.random() * letters.length)];
-        ctx.fillText(text, i * fontSize, drops[i]*fontSize);
-        if(drops[i]*fontSize > canvas.height && Math.random() > 0.975) drops[i]=0;
-        drops[i]++;
-    }}
-}}
-setInterval(draw, 35);
-</script>
-</body>
-</html>
-    """
-    return render_template_string(page)
+    return jsonify({
+        "pnl": pnl,
+        "recent_trade": recent_trade,
+        "session_status": session_status,
+        "positions": pos_list
+    })
 
 # ----------------------------
 # WEBHOOK
