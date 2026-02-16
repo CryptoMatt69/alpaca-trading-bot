@@ -1,120 +1,308 @@
-import streamlit as st
-import yfinance as yf
+import os
+from flask import Flask, request, jsonify, render_template_string
+import alpaca_trade_api as tradeapi
+from dotenv import load_dotenv
 from datetime import datetime
+import pytz
 
 # ----------------------------
-# PAGE CONFIG
-# ----------------------------
-st.set_page_config(
-    page_title="TRADECLAW Terminal",
-    page_icon="📈",
-    layout="wide"
-)
+load_dotenv()
+app = Flask(__name__)
+
+API_KEY = os.environ.get("APCA_API_KEY_ID")
+API_SECRET = os.environ.get("APCA_API_SECRET_KEY")
+BASE_URL = os.environ.get("APCA_API_BASE_URL")
+
+if not all([API_KEY, API_SECRET, BASE_URL]):
+    raise ValueError("Alpaca API keys or base URL not set!")
+
+api = tradeapi.REST(API_KEY, API_SECRET, BASE_URL, api_version="v2")
 
 # ----------------------------
-# CUSTOM CSS (NEON + CLEAN)
-# ----------------------------
-st.markdown("""
+@app.route("/", methods=["GET"])
+def home():
+    page = """
+<!DOCTYPE html>
+<html>
+<head>
+<title>TradeClaw Premium Terminal</title>
 <style>
-html, body, [class*="css"]  {
-    background-color: #0d0d0d;
-    color: white;
-}
-.main-header { text-align:center; padding-top:10px; }
-.main-title { font-size:48px; font-weight:700; color:#ff66ff; text-shadow:0 0 20px #ff66ff; margin-bottom:5px; }
-.subtitle { font-size:16px; color:#cccccc; margin-bottom:30px; }
-.metric-card { background:#111111; padding:18px; border-radius:14px; box-shadow:0 0 14px rgba(255,0,255,0.15); text-align:center; }
-.neon-green { color:#ff66ff; text-shadow:0 0 8px #ff66ff; }
-.neon-red { color:#ff1a1a; text-shadow:0 0 6px #ff1a1a; }
-section[data-testid="stSidebar"] { background-color: #111111; }
-iframe { border:none; border-radius:10px; margin-bottom:15px; }
-.chart-container { width:100%; height:450px; }
-.grid { display:grid; grid-template-columns:repeat(2,1fr); gap:10px; }
-</style>
-""", unsafe_allow_html=True)
+@import url('https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap');
 
-# ----------------------------
-# HEADER
-# ----------------------------
-st.markdown("""
-<div class="main-header">
-    <div class="main-title">TRADECLAW</div>
-    <div class="subtitle">
-        Advanced Trading Analytics • Performance Intelligence • Market Visualization
+body {
+    margin: 0;
+    font-family: 'Roboto Mono', monospace;
+    background: linear-gradient(to right, #0f0c29, #302b63, #24243e);
+    color: #fff;
+    overflow-x: hidden;
+}
+
+.container {
+    max-width: 1300px;
+    margin: 20px auto;
+    padding: 10px;
+}
+
+.title {
+    font-size: 60px;
+    font-weight: 900;
+    text-align: center;
+    background: linear-gradient(90deg, #ff2bd6, #ff7f50);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin-bottom: 30px;
+}
+
+.card {
+    background: rgba(0,0,0,0.85);
+    border-radius: 15px;
+    padding: 20px;
+    margin-bottom: 20px;
+    box-shadow: 0 0 40px rgba(255, 43, 214, 0.5);
+    transition: transform 0.2s;
+}
+
+.card:hover {
+    transform: scale(1.01);
+}
+
+.card h2 {
+    margin-top: 0;
+    font-size: 24px;
+    color: #ff2bd6;
+}
+
+.stat {
+    font-size: 18px;
+    margin: 5px 0;
+    transition: all 0.5s ease;
+}
+
+#chart {
+    width: 100%;
+    height: 500px;
+    border-radius: 15px;
+    overflow: hidden;
+    box-shadow: 0 0 40px rgba(255, 43, 214, 0.5);
+    margin-bottom: 20px;
+}
+
+.message-box {
+    text-align: center;
+    font-size: 20px;
+    color: #00ff00;
+    text-shadow: 0 0 10px #00ff00;
+    margin-top: 10px;
+}
+
+.chart-select {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+
+.chart-select input {
+    padding: 5px 10px;
+    border-radius: 8px;
+    border: none;
+    font-size: 16px;
+}
+
+.chart-select button {
+    padding: 5px 12px;
+    border-radius: 8px;
+    border: none;
+    background: #ff2bd6;
+    color: #fff;
+    cursor: pointer;
+    font-weight: bold;
+    transition: 0.2s;
+}
+.chart-select button:hover {
+    background: #ff7f50;
+}
+</style>
+</head>
+<body>
+
+<div class="container">
+    <div class="title">🤖 TradeClaw Premium</div>
+
+    <div class="card">
+        <h2>Account Overview</h2>
+        <div class="stat">PnL: <span id="pnl">$0.00</span></div>
+        <div class="stat">Recent Trade: <span id="recent_trade">N/A</span></div>
+        <div class="stat">Trading Session: <span id="session_status">Loading...</span></div>
+        <div class="message-box">Automated trades, Proven results.</div>
+    </div>
+
+    <div class="card">
+        <h2>TradingView Chart</h2>
+        <div class="chart-select">
+            <input type="text" id="chart_symbol" placeholder="Symbol e.g. AAPL" />
+            <select id="chart_interval">
+                <option value="1">1 min</option>
+                <option value="5" selected>5 min</option>
+                <option value="15">15 min</option>
+                <option value="60">1 hr</option>
+                <option value="D">Daily</option>
+            </select>
+            <button onclick="updateChart()">Load Chart</button>
+        </div>
+        <div id="chart">
+            <iframe id="chart_iframe" 
+                src="https://s.tradingview.com/widgetembed/?frameElementId=tradingview_12345&symbol=NASDAQ%3AAAPL&interval=5&hidesidetoolbar=1&symboledit=1&saveimage=1&toolbarbg=000000&studies=[]&theme=dark&style=1&timezone=Etc%2FUTC&studies_overrides={'mainSeriesProperties.candleStyle.upColor':'#DA70D6','mainSeriesProperties.candleStyle.downColor':'#000000','mainSeriesProperties.candleStyle.wickUpColor':'#DA70D6','mainSeriesProperties.candleStyle.wickDownColor':'#000000','mainSeriesProperties.candleStyle.borderUpColor':'#DA70D6','mainSeriesProperties.candleStyle.borderDownColor':'#000000','paneProperties.background':'#000000'}"
+                style="width:100%; height:100%;" allowtransparency="true" frameborder="0"></iframe>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>Current Positions</h2>
+        <div id="positions_box">Loading...</div>
     </div>
 </div>
-""", unsafe_allow_html=True)
+
+<script>
+// ------------------- Dynamic Chart Swap -------------------
+function updateChart() {
+    const symbol = document.getElementById('chart_symbol').value.toUpperCase() || "AAPL";
+    const interval = document.getElementById('chart_interval').value;
+    const iframe = document.getElementById('chart_iframe');
+    iframe.src = `https://s.tradingview.com/widgetembed/?frameElementId=tradingview_12345&symbol=NASDAQ%3A${symbol}&interval=${interval}&hidesidetoolbar=1&symboledit=1&saveimage=1&toolbarbg=000000&studies=[]&theme=dark&style=1&timezone=Etc%2FUTC&studies_overrides={'mainSeriesProperties.candleStyle.upColor':'#DA70D6','mainSeriesProperties.candleStyle.downColor':'#000000','mainSeriesProperties.candleStyle.wickUpColor':'#DA70D6','mainSeriesProperties.candleStyle.wickDownColor':'#000000','mainSeriesProperties.candleStyle.borderUpColor':'#DA70D6','mainSeriesProperties.candleStyle.borderDownColor':'#000000','paneProperties.background':'#000000'}`;
+}
+
+// ------------------- Live Stats -------------------
+let lastPnl = 0;
+
+async function fetchData() {
+    try {
+        const res = await fetch('/api/stats');
+        const data = await res.json();
+
+        // Animate PnL
+        const pnlEl = document.getElementById('pnl');
+        const pnlValue = parseFloat(data.pnl.replace('$','').replace(',','')) || 0;
+        const color = pnlValue >= 0 ? "#DA70D6" : "#ff3b3b";
+        pnlEl.style.color = color;
+        animateNumber(pnlEl, lastPnl, pnlValue);
+        lastPnl = pnlValue;
+
+        document.getElementById('recent_trade').innerText = data.recent_trade;
+        document.getElementById('session_status').innerText = data.session_status;
+
+        const posBox = document.getElementById('positions_box');
+        if(data.positions.length === 0){
+            posBox.innerHTML = "No open positions";
+        } else {
+            posBox.innerHTML = data.positions.map(p => {
+                const color = p.side === "LONG" ? "#00ff00" : "#ff3b3b";
+                return `<span style="color:${color}; font-weight:bold">${p.symbol}: ${p.side} ${p.qty} @ $${p.avg_entry_price}</span>`;
+            }).join('<br>');
+        }
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+// ------------------- Animate Numbers -------------------
+function animateNumber(element, start, end) {
+    const duration = 500;
+    const range = end - start;
+    const startTime = performance.now();
+    function step(currentTime) {
+        const progress = Math.min((currentTime - startTime)/duration,1);
+        element.innerText = "$" + (start + range * progress).toFixed(2);
+        if(progress < 1) requestAnimationFrame(step);
+    }
+    requestAnimationFrame(step);
+}
+
+// Fetch every 3 seconds for smooth live update
+fetchData();
+setInterval(fetchData, 3000);
+</script>
+</body>
+</html>
+    """
+    return render_template_string(page)
 
 # ----------------------------
-# SIDEBAR NAV
-# ----------------------------
-st.sidebar.title("📊 Navigation")
-page = st.sidebar.radio("Select Page", ["Dashboard", "Performance", "Activity / Win Rate"])
+@app.route("/api/stats", methods=["GET"])
+def api_stats():
+    try:
+        clock = api.get_clock()
+        est_now = datetime.now(pytz.timezone("US/Eastern")).strftime("%I:%M:%S %p EST")
+        session_status = f"{'OPEN 🟢' if clock.is_open else 'CLOSED 🔴'} {est_now}"
+    except:
+        session_status = "UNKNOWN"
 
-single_stock = st.sidebar.text_input("Single Chart Ticker", "AAPL")
-multi_stocks = st.sidebar.text_input("Multi Chart Tickers (comma separated)", "AAPL,TSLA,NVDA")
+    try:
+        account = api.get_account()
+        pnl = f"${float(account.equity) - float(account.cash):,.2f}"
+        trades = api.list_orders(status='closed', limit=1, order_by='created_at', direction='desc')
+        recent_trade = f"{trades[0].symbol} {trades[0].side.upper()} {trades[0].filled_qty}" if trades else "N/A"
+    except:
+        pnl = "$0.00"
+        recent_trade = "N/A"
 
-# ----------------------------
-# DASHBOARD
-# ----------------------------
-if page == "Dashboard":
-    col1, col2, col3 = st.columns(3)
-    equity = 100000
-    daily_pnl = 1200  # example
-    win_rate = 65.5
-    pnl_class = "neon-green" if daily_pnl > 0 else "neon-red"
+    pos_list = []
+    try:
+        positions = api.list_positions()
+        for p in positions:
+            side = "LONG" if float(p.qty) > 0 else "SHORT"
+            pos_list.append({
+                "symbol": p.symbol,
+                "qty": abs(float(p.qty)),
+                "avg_entry_price": p.avg_entry_price,
+                "side": side
+            })
+    except:
+        pos_list = []
 
-    col1.markdown(f'<div class="metric-card"><h4>Total Equity</h4><h2 class="neon-green">${equity:,.2f}</h2></div>', unsafe_allow_html=True)
-    col2.markdown(f'<div class="metric-card"><h4>Daily PnL</h4><h2 class="{pnl_class}">${daily_pnl:,.2f}</h2></div>', unsafe_allow_html=True)
-    col3.markdown(f'<div class="metric-card"><h4>Win Rate</h4><h2 class="neon-green">{win_rate:.2f}%</h2></div>', unsafe_allow_html=True)
-
-    st.markdown("### 📈 Single Stock Chart")
-    st.markdown(f"""
-    <div class="chart-container">
-    <iframe src="https://s.tradingview.com/widgetembed/?symbol=NASDAQ:{single_stock.upper()}&interval=15&theme=dark&studies=%5B%5D&toolbarbg=000000" width="100%" height="100%"></iframe>
-    </div>
-    """, unsafe_allow_html=True)
-
-    st.markdown("### 📊 Multi Stock Comparison")
-    tickers = [t.strip().upper() for t in multi_stocks.split(",")]
-    st.markdown('<div class="grid">', unsafe_allow_html=True)
-    for t in tickers:
-        st.markdown(f"""
-        <div class="chart-container">
-        <iframe src="https://s.tradingview.com/widgetembed/?symbol=NASDAQ:{t}&interval=15&theme=dark&studies=%5B%5D&toolbarbg=000000" width="100%" height="100%"></iframe>
-        </div>
-        """, unsafe_allow_html=True)
-    st.markdown('</div>', unsafe_allow_html=True)
-
-# ----------------------------
-# PERFORMANCE
-# ----------------------------
-elif page == "Performance":
-    st.markdown("## 📊 Performance Analytics")
-    st.markdown("""
-    <div class="metric-card">
-    <p>Sharpe Ratio: 1.25</p>
-    <p>Max Drawdown: -5.4%</p>
-    <p>Total Return: 12.3%</p>
-    <p>Total Trades: 128</p>
-    </div>
-    """, unsafe_allow_html=True)
-
-    st.markdown("### 📈 Equity Curve")
-    st.markdown("""
-    <div class="chart-container">
-    <iframe src="https://s.tradingview.com/widgetembed/?symbol=NASDAQ:AAPL&interval=60&theme=dark&studies=%5B%5D&toolbarbg=000000" width="100%" height="100%"></iframe>
-    </div>
-    """, unsafe_allow_html=True)
+    return jsonify({
+        "pnl": pnl,
+        "recent_trade": recent_trade,
+        "session_status": session_status,
+        "positions": pos_list
+    })
 
 # ----------------------------
-# ACTIVITY / WIN RATE
+@app.route("/webhook", methods=["POST"])
+def webhook():
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "No JSON received"}), 400
+
+        symbol = data.get("symbol")
+        qty = data.get("qty")
+        side = data.get("side")
+
+        if not all([symbol, qty, side]):
+            return jsonify({"error": "Missing parameters"}), 400
+
+        side = side.lower()
+        if side in ["buy", "sell"]:
+            order = api.submit_order(
+                symbol=symbol,
+                qty=qty,
+                side=side,
+                type="market",
+                time_in_force="gtc"
+            )
+            return jsonify({"status": "order_submitted", "id": order.id})
+
+        elif side in ["close_long", "close_short"]:
+            api.close_position(symbol)
+            return jsonify({"status": "position_closed"})
+
+        else:
+            return jsonify({"error": "Invalid side"}), 400
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 # ----------------------------
-elif page == "Activity / Win Rate":
-    st.markdown("## 📈 Activity & Win Rate Trends")
-    # Since we’re not using Plotly, just show placeholder TradingView chart (could be replaced with actual performance data)
-    st.markdown("""
-    <div class="chart-container">
-    <iframe src="https://s.tradingview.com/widgetembed/?symbol=NASDAQ:AAPL&interval=1D&theme=dark&studies=%5B%5D&toolbarbg=000000" width="100%" height="100%"></iframe>
-    </div>
-    """, unsafe_allow_html=True)
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5100))
+    app.run(host="0.0.0.0", port=port)
