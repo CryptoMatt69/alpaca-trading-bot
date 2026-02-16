@@ -5,8 +5,6 @@ from dotenv import load_dotenv
 from datetime import datetime
 import pytz
 
-# ----------------------------
-# Load environment variables
 load_dotenv()
 app = Flask(__name__)
 
@@ -19,11 +17,9 @@ if not all([API_KEY, API_SECRET, BASE_URL]):
 
 api = tradeapi.REST(API_KEY, API_SECRET, BASE_URL, api_version="v2")
 
-# ----------------------------
-# Home route
 @app.route("/", methods=["GET"])
 def home():
-    # ---------------- Dynamic session (Market open/close + EST time)
+    # Dynamic session
     try:
         clock = api.get_clock()
         est_now = datetime.now(pytz.timezone("US/Eastern")).strftime("%I:%M:%S %p EST")
@@ -31,7 +27,7 @@ def home():
     except:
         session_status = "UNKNOWN"
 
-    # ---------------- Dynamic stats (PnL + Recent Trade)
+    # Dynamic stats
     try:
         account = api.get_account()
         pnl_value = float(account.equity) - float(account.cash)
@@ -42,11 +38,11 @@ def home():
             t = trades[0]
             recent_trade = f"{t.symbol} {t.side.upper()} {t.filled_qty}"
     except:
-        pnl_value = 0.00
+        pnl_value = 0.0
         pnl = "$0.00"
         recent_trade = "N/A"
 
-    # ---------------- Current positions
+    # Current positions
     try:
         positions = api.list_positions()
         pos_html = ""
@@ -58,7 +54,6 @@ def home():
     except:
         pos_html = "Cannot fetch positions"
 
-    # ---------------- HTML Page
     page = f"""
 <!DOCTYPE html>
 <html>
@@ -91,10 +86,6 @@ canvas {{
     color: #ff2bd6;
     text-shadow: 0 0 30px #ff2bd6, 0 0 60px #ff2bd6;
     margin-bottom: 15px;
-    transition: 0.3s;
-}}
-.title:hover {{
-    text-shadow: 0 0 50px #ff2bd6, 0 0 100px #ff2bd6;
 }}
 .glow-box {{
     border: 2px solid #ff2bd6;
@@ -102,24 +93,11 @@ canvas {{
     padding: 15px;
     margin-bottom: 15px;
     background: rgba(0,0,0,0.85);
-    transition: box-shadow 0.5s ease;
-}}
-.glow-box:hover {{
-    box-shadow: 0 0 50px #ff2bd6, 0 0 100px #ff2bd6 inset;
 }}
 .stat-box {{
     display: block;
     margin: 5px 0;
     font-size: 16px;
-    transition: all 0.3s ease;
-}}
-.stat-box.pulse {{
-    animation: pulseStat 1.5s infinite;
-}}
-@keyframes pulseStat {{
-    0% {{ text-shadow: 0 0 5px #00ff00; }}
-    50% {{ text-shadow: 0 0 15px #00ff00; }}
-    100% {{ text-shadow: 0 0 5px #00ff00; }}
 }}
 #chart {{
     height: 500px;
@@ -140,18 +118,10 @@ canvas {{
     text-align: center;
     color: #00ff00;
     text-shadow: 0 0 15px #00ff00, 0 0 30px #00ff00;
-    animation: pulse 2s infinite;
-}}
-@keyframes pulse {{
-    0% {{ text-shadow: 0 0 15px #00ff00, 0 0 30px #00ff00; }}
-    50% {{ text-shadow: 0 0 25px #00ff00, 0 0 50px #00ff00; }}
-    100% {{ text-shadow: 0 0 15px #00ff00, 0 0 30px #00ff00; }}
 }}
 </style>
 </head>
 <body>
-
-<audio id="ding" src="https://www.soundjay.com/button/sounds/button-3.mp3"></audio>
 
 <canvas id="matrix"></canvas>
 
@@ -166,7 +136,12 @@ canvas {{
     </div>
 
     <!-- TRADINGVIEW CHART -->
-    <div id="chart" class="glow-box"></div>
+    <div id="chart" class="glow-box">
+        <iframe
+            src="https://s.tradingview.com/widgetembed/?frameElementId=tradingview_1&symbol=NASDAQ%3ANFLX&interval=15&hidesidetoolbar=1&symboledit=1&saveimage=1&toolbarbg=000000&studies=[]&theme=dark&style=1&timezone=Etc%2FUTC&studies_overrides={{'mainSeriesProperties.candleStyle.upColor':'#DA70D6','mainSeriesProperties.candleStyle.downColor':'#000000','mainSeriesProperties.candleStyle.wickUpColor':'#000000','mainSeriesProperties.candleStyle.wickDownColor':'#000000'}}"
+            style="width:100%; height:500px;" frameborder="0" allowtransparency="true">
+        </iframe>
+    </div>
 
     <!-- CURRENT POSITIONS -->
     <div id="positions-box" class="glow-box">
@@ -174,33 +149,6 @@ canvas {{
         {pos_html}
     </div>
 </div>
-
-<script src="https://s3.tradingview.com/tv.js"></script>
-<script>
-new TradingView.widget({{
-  "width": "100%",
-  "height": 500,
-  "symbol": "NASDAQ:NFLX",
-  "interval": "15",
-  "timezone": "Etc/UTC",
-  "theme": "dark",
-  "style": "1",
-  "locale": "en",
-  "container_id": "chart",
-  "hide_side_toolbar": true,
-  "allow_symbol_change": true,
-  "studies": [],
-  "overrides": {{
-    "mainSeriesProperties.candleStyle.upColor": "#DA70D6",
-    "mainSeriesProperties.candleStyle.downColor": "#000000",
-    "mainSeriesProperties.candleStyle.wickUpColor": "#000000",
-    "mainSeriesProperties.candleStyle.wickDownColor": "#000000",
-    "volume.volume.color.0": "#DA70D6",
-    "volume.volume.color.1": "#000000",
-    "volume.volume.transparency": 0
-  }}
-}});
-</script>
 
 <script>
 // MATRIX GREEN RAIN
@@ -213,18 +161,18 @@ const fontSize = 14;
 const columns = Math.floor(canvas.width / fontSize);
 const drops = Array.from({length: columns}, () => 1);
 function draw() {{
-    ctx.fillStyle = "rgba(0, 0, 0, 0.05)";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = "rgba(0,0,0,0.05)";
+    ctx.fillRect(0,0,canvas.width,canvas.height);
     ctx.fillStyle = "#00ff00";
     ctx.font = fontSize + "px monospace";
-    for (let i = 0; i < drops.length; i++) {{
-        const text = letters[Math.floor(Math.random() * letters.length)];
-        ctx.fillText(text, i * fontSize, drops[i] * fontSize);
-        if (drops[i] * fontSize > canvas.height && Math.random() > 0.975) drops[i] = 0;
+    for (let i=0;i<drops.length;i++) {{
+        const text = letters[Math.floor(Math.random()*letters.length)];
+        ctx.fillText(text,i*fontSize,drops[i]*fontSize);
+        if(drops[i]*fontSize>canvas.height && Math.random()>0.975) drops[i]=0;
         drops[i]++;
     }}
 }}
-setInterval(draw, 35);
+setInterval(draw,35);
 </script>
 
 </body>
@@ -232,49 +180,33 @@ setInterval(draw, 35);
 """
     return render_template_string(page)
 
-# ----------------------------
 # WEBHOOK
 @app.route("/webhook", methods=["POST"])
 def webhook():
     try:
         data = request.get_json()
-        print("📩 Webhook received:", data)
-
         if not data:
             return jsonify({"error": "No JSON received"}), 400
-
         symbol = data.get("symbol")
         qty = data.get("qty")
         side = data.get("side")
-
         if not all([symbol, qty, side]):
             return jsonify({"error": "Missing parameters"}), 400
-
         side = side.lower()
-
-        if side in ["buy", "sell"]:
-            order = api.submit_order(
-                symbol=symbol,
-                qty=qty,
-                side=side,
-                type="market",
-                time_in_force="gtc"
-            )
-            return jsonify({"status": "order_submitted", "id": order.id})
-
-        elif side in ["close_long", "close_short"]:
+        if side in ["buy","sell"]:
+            order = api.submit_order(symbol=symbol, qty=qty, side=side, type="market", time_in_force="gtc")
+            return jsonify({"status":"order_submitted","id":order.id})
+        elif side in ["close_long","close_short"]:
             api.close_position(symbol)
-            return jsonify({"status": "position_closed"})
-
+            return jsonify({"status":"position_closed"})
         else:
-            return jsonify({"error": "Invalid side"}), 400
-
+            return jsonify({"error":"Invalid side"}),400
     except Exception as e:
         print("❌ Error:", str(e))
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error":str(e)}),500
 
-# ----------------------------
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5100))
+    port = int(os.environ.get("PORT",5100))
     app.run(host="0.0.0.0", port=port)
+
 
