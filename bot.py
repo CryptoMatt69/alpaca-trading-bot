@@ -3,6 +3,7 @@ from flask import Flask, request, jsonify, render_template_string
 import alpaca_trade_api as tradeapi
 from dotenv import load_dotenv
 from datetime import datetime
+import pytz
 
 # ----------------------------
 # Load environment variables
@@ -25,21 +26,15 @@ def home():
     # Trading session
     try:
         clock = api.get_clock()
-        session_status = "OPEN 🟢" if clock.is_open else "CLOSED 🔴"
+        session_open = clock.is_open
     except:
-        session_status = "UNKNOWN"
+        session_open = None
 
-    # Dynamic PnL
-    try:
-        account = api.get_account()
-        pnl = f"${float(account.equity) - float(account.last_equity):,.2f}"
-    except:
-        pnl = "$0.00"
-
-    # Example recent trade
+    # Example stats
+    proven_capital = "$1,245.33"
     recent_trade = "NFLX BUY 1"
 
-    # Current positions for box under chart
+    # Current positions
     try:
         positions = api.list_positions()
         pos_html = ""
@@ -63,6 +58,7 @@ body {{
     background: black;
     font-family: monospace;
     color: #ff2bd6;
+    font-size: 14px;
 }}
 canvas {{
     position: fixed;
@@ -73,47 +69,40 @@ canvas {{
 .container {{
     position: relative;
     z-index: 1;
-    padding: 30px;
-}}
-.glow-box {{
-    padding: 20px;
-    border: 2px solid #ff2bd6;
-    box-shadow: 0 0 20px #ff2bd6;
-    background: rgba(0,0,0,0.8);
-    margin-bottom: 20px;
+    padding: 15px;
+    width: 100%;
+    box-sizing: border-box;
 }}
 .title {{
-    font-size: 48px;
+    font-size: 36px;
+    font-weight: 900;
     color: #ff2bd6;
-    text-shadow: 0 0 20px #ff2bd6;
-    margin-bottom: 10px;
+    text-shadow: 0 0 15px #ff2bd6;
+}}
+.stats-box {{
+    background: rgba(0,0,0,0.8);
+    padding: 10px 15px;
+    margin-bottom: 15px;
+    border: 2px solid #ff2bd6;
+    box-shadow: 0 0 20px #ff2bd6;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
 }}
 .stat-box {{
-    display: inline-block;
-    margin-right: 25px;
-    font-size: 16px;
+    margin: 3px 0;
 }}
 #chart {{
-    height: 600px;
+    height: 400px;
     border: 2px solid #ff2bd6;
     box-shadow: 0 0 20px #ff2bd6;
 }}
 #positions-box {{
-    margin-top: 20px;
-    padding: 15px;
+    margin-top: 10px;
+    padding: 10px 15px;
     border: 2px solid #ff2bd6;
     box-shadow: 0 0 20px #ff2bd6;
     background: rgba(0,0,0,0.8);
-    font-size: 16px;
-}}
-.pulse {{
-    animation: pulse 1.5s infinite;
-    color: #ff2bd6;
-}}
-@keyframes pulse {{
-    0% {{ opacity: 1; }}
-    50% {{ opacity: 0.4; }}
-    100% {{ opacity: 1; }}
 }}
 </style>
 </head>
@@ -122,83 +111,70 @@ canvas {{
 <canvas id="matrix"></canvas>
 
 <div class="container">
-    <div class="glow-box">
-        <div class="title">TradeClaw</div>
-        <div class="stat-box">PnL: {pnl}</div>
+    <div class="title">🤖 TradeClaw</div>
+
+    <!-- TOP STATS BOX -->
+    <div class="stats-box">
+        <div class="stat-box">Proven Capital: {proven_capital}</div>
         <div class="stat-box">Recent Trade: {recent_trade}</div>
-        <div class="stat-box">Trading Session: {session_status}</div>
-        <div class="stat-box pulse">Automated trades, proven results.</div>
+        <div class="stat-box">Trading Session: <span id="session-status"></span></div>
+        <div class="stat-box">Automated trades, Proven results.</div>
     </div>
 
     <!-- TRADINGVIEW CHART -->
-    <div id="chart"></div>
+    <div id="chart">
+        <iframe 
+            src="https://s.tradingview.com/widgetembed/?frameElementId=tradingview_12345&symbol=NASDAQ%3ANFLX&interval=15&hidesidetoolbar=1&symboledit=1&saveimage=1&toolbarbg=000000&studies=[]&theme=dark&style=1&timezone=Etc%2FUTC&studies_overrides={{'volume.volume.color.0':'#DA70D6','volume.volume.color.1':'#000000','mainSeriesProperties.candleStyle.upColor':'#DA70D6','mainSeriesProperties.candleStyle.downColor':'#000000','mainSeriesProperties.candleStyle.wickUpColor':'#000000','mainSeriesProperties.candleStyle.wickDownColor':'#000000'}}"
+            style="width:100%; height:400px; border:0;" allowtransparency="true" frameborder="0"></iframe>
+    </div>
 
     <!-- CURRENT POSITIONS -->
     <div id="positions-box">
         <strong>Current Positions:</strong><br>
         {pos_html}
     </div>
+
 </div>
 
-<script src="https://s3.tradingview.com/tv.js"></script>
-<script type="text/javascript">
+<script>
 // MATRIX GREEN RAIN
 const canvas = document.getElementById("matrix");
 const ctx = canvas.getContext("2d");
-
 canvas.height = window.innerHeight;
 canvas.width = window.innerWidth;
-
 const letters = "01ABCDEFGHIJKLMNOPQRSTUVWXYZ$#@%&*";
-const fontSize = 16;
-const columns = Math.floor(canvas.width / fontSize);
+const fontSize = 14;
+const columns = canvas.width / fontSize;
 const drops = [];
 for (let x = 0; x < columns; x++) drops[x] = 1;
 
 function draw() {{
-    ctx.fillStyle = "rgba(0, 0, 0, 0.05)";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = "rgba(0,0,0,0.05)";
+    ctx.fillRect(0,0,canvas.width,canvas.height);
     ctx.fillStyle = "#00ff00";
     ctx.font = fontSize + "px monospace";
-    for (let i = 0; i < drops.length; i++) {{
-        const text = letters[Math.floor(Math.random() * letters.length)];
-        ctx.fillText(text, i * fontSize, drops[i] * fontSize);
-        if (drops[i] * fontSize > canvas.height && Math.random() > 0.975) drops[i] = 0;
+    for (let i=0;i<drops.length;i++){{
+        const text = letters[Math.floor(Math.random()*letters.length)];
+        ctx.fillText(text,i*fontSize,drops[i]*fontSize);
+        if(drops[i]*fontSize>canvas.height && Math.random()>0.975)drops[i]=0;
         drops[i]++;
     }}
 }}
 setInterval(draw, 35);
 
-// TRADINGVIEW WIDGET
-new TradingView.widget({{
-  "container_id": "chart",
-  "width": "100%",
-  "height": 600,
-  "symbol": "NASDAQ:NFLX",
-  "interval": "15",
-  "timezone": "Etc/UTC",
-  "theme": "dark",
-  "style": "1",
-  "toolbar_bg": "#000000",
-  "hide_top_toolbar": true,
-  "hide_legend": true,
-  "withdateranges": false,
-  "allow_symbol_change": true,
-  "studies": [],
-  "locale": "en",
-  "mainSeriesProperties": {{
-    "candleStyle": {{
-      "upColor": "#DA70D6",
-      "downColor": "#000000",
-      "wickUpColor": "#000000",
-      "wickDownColor": "#000000"
-    }}
-  }},
-  "volumeStyle": {{
-    "upColor": "#DA70D6",
-    "downColor": "#000000"
-  }}
-}});
+// ----------------------------
+// SESSION TIME (EST)
+function updateSession() {{
+    const now = new Date();
+    const estOffset = -5; // EST
+    const utc = now.getTime() + now.getTimezoneOffset()*60000;
+    const est = new Date(utc + (3600000*estOffset));
+    const session = {str(session_open).lower()};
+    const statusText = session ? "OPEN 🟢" : "CLOSED 🔴";
+    document.getElementById("session-status").innerText = statusText + " | " + est.toLocaleTimeString();
+}}
+setInterval(updateSession, 1000);
+updateSession();
 </script>
 </body>
 </html>
@@ -249,10 +225,5 @@ def webhook():
 # ----------------------------
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5100))
-    app.run(host="0.0.0.0", port=port, threaded=True)
-
-
-
-
-
+    app.run(host="0.0.0.0", port=port)
 
