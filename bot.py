@@ -23,9 +23,9 @@ api = tradeapi.REST(API_KEY, API_SECRET, BASE_URL, api_version="v2")
 trade_log = []
 last_trade_side = None
 
-ORCHID = "#DA70D6"  # Orchid Pink
-BLACK = "#000000"
-LIGHT_GRAY = "#f2f2f2"
+ORCHID = "#DA70D6"
+INTER_MIAMI_PINK = "#FF69B4"
+MEDIUM_GRAY = "#808080"
 
 # ----------------------------
 @app.route("/", methods=["GET"])
@@ -83,7 +83,7 @@ canvas {{
     border-radius:20px;
     background:#111;
     animation:glow 2s infinite alternate;
-    box-shadow:0 0 20px {ORCHID};
+    box-shadow:0 0 25px {ORCHID};
 }}
 
 @keyframes glow {{
@@ -122,7 +122,16 @@ iframe {{
 
 <div class="container">
     <div class="card flash">
-        <h1 style="color:{ORCHID};">🤖 TradeClaw</h1>
+        <h1 style="color:{ORCHID}; margin-bottom:5px;">🤖 TradeClaw</h1>
+        <div style="
+            color:{INTER_MIAMI_PINK};
+            font-size:16px;
+            margin-bottom:15px;
+            letter-spacing:0.5px;
+            opacity:0.9;">
+            The future of trading, automation with tested results.
+        </div>
+
         <div style="color:#00ff99; font-size:20px;">LIVE & READY</div>
 
         <div class="metric">💰 Equity: ${equity:,.2f}</div>
@@ -142,18 +151,19 @@ iframe {{
     </div>
 
     <iframe
-        src="https://s.tradingview.com/widgetembed/?symbol=NASDAQ:TSLA&interval=15&theme=light&style=1&toolbarbg=f2f2f2&studies=[]&hide_side_toolbar=false&allow_symbol_change=true&save_image=false&hideideas=true&overrides=%7B
-        %22paneProperties.background%22%3A%22{LIGHT_GRAY.replace('#','%23')}%22%2C
+        src="https://s.tradingview.com/widgetembed/?symbol=NASDAQ:TSLA&interval=15&theme=light&style=1&toolbarbg=808080&studies=[]&hide_side_toolbar=false&allow_symbol_change=true&save_image=false&hideideas=true&overrides=%7B
+        %22paneProperties.background%22%3A%22%23808080%22%2C
         %22paneProperties.vertGridProperties.color%22%3A%22transparent%22%2C
         %22paneProperties.horzGridProperties.color%22%3A%22transparent%22%2C
-        %22mainSeriesProperties.candleStyle.upColor%22%3A%22%23DA70D6%22%2C
+        %22mainSeriesProperties.candleStyle.upColor%22%3A%22%23FF69B4%22%2C
         %22mainSeriesProperties.candleStyle.downColor%22%3A%22%23000000%22%2C
+        %22mainSeriesProperties.candleStyle.borderUpColor%22%3A%22%23FF69B4%22%2C
+        %22mainSeriesProperties.candleStyle.borderDownColor%22%3A%22%23000000%22%2C
         %22mainSeriesProperties.candleStyle.wickUpColor%22%3A%22%23000000%22%2C
         %22mainSeriesProperties.candleStyle.wickDownColor%22%3A%22%23000000%22%2C
-        %22mainSeriesProperties.candleStyle.borderUpColor%22%3A%22%23DA70D6%22%2C
-        %22mainSeriesProperties.candleStyle.borderDownColor%22%3A%22%23000000%22%2C
-        %22volume.volume.color.0%22%3A%22%23DA70D6%22%2C
-        %22volume.volume.color.1%22%3A%22%23000000%22
+        %22volume.volume.color.0%22%3A%22%23FF69B4%22%2C
+        %22volume.volume.color.1%22%3A%22%23000000%22%2C
+        %22volume.volume.transparency%22%3A0
         %7D"
         width="950"
         height="550"
@@ -262,6 +272,7 @@ def health():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5100))
     app.run(host="0.0.0.0", port=port, threaded=True)
+
 
 
 
