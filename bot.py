@@ -56,6 +56,7 @@ def home():
     except:
         pos_html = "Cannot fetch positions"
 
+    # ---------------- HTML PAGE
     page = f"""
 <!DOCTYPE html>
 <html>
@@ -156,8 +157,8 @@ canvas.height = window.innerHeight;
 canvas.width = window.innerWidth;
 const letters = "01ABCDEFGHIJKLMNOPQRSTUVWXYZ$#@%&*";
 const fontSize = 14;
-const columns = canvas.width / fontSize;
-const drops = Array.from({{length: columns}}, () => 1);
+const columns = Math.floor(canvas.width / fontSize);
+const drops = Array.from({{length: columns}}, () => 1); // double {{}} to escape f-string
 function draw() {{
     ctx.fillStyle = "rgba(0, 0, 0, 0.05)";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -222,6 +223,3 @@ def webhook():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5100))
     app.run(host="0.0.0.0", port=port)
-
-
-
