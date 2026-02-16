@@ -23,7 +23,7 @@ api = tradeapi.REST(API_KEY, API_SECRET, BASE_URL, api_version="v2")
 # Home route
 @app.route("/", methods=["GET"])
 def home():
-    # ---------------- Dynamic session
+    # ---------------- Dynamic session (Market open/close + EST time)
     try:
         clock = api.get_clock()
         est_now = datetime.now(pytz.timezone("US/Eastern")).strftime("%I:%M:%S %p EST")
@@ -31,16 +31,18 @@ def home():
     except:
         session_status = "UNKNOWN"
 
-    # ---------------- Dynamic stats
+    # ---------------- Dynamic stats (PnL + Recent Trade)
     try:
         account = api.get_account()
-        pnl = f"${float(account.equity) - float(account.cash):,.2f}"  # change in equity
+        pnl_value = float(account.equity) - float(account.cash)
+        pnl = f"${pnl_value:,.2f}"
         recent_trade = "N/A"
         trades = api.list_orders(status='closed', limit=1, order_by='created_at', direction='desc')
         if trades:
             t = trades[0]
             recent_trade = f"{t.symbol} {t.side.upper()} {t.filled_qty}"
     except:
+        pnl_value = 0.00
         pnl = "$0.00"
         recent_trade = "N/A"
 
@@ -56,13 +58,13 @@ def home():
     except:
         pos_html = "Cannot fetch positions"
 
+    # ---------------- HTML Page
     page = f"""
 <!DOCTYPE html>
 <html>
 <head>
 <title>TradeClaw Terminal</title>
 <style>
-/* ---------------------- Base Styles ---------------------- */
 body {{
     margin: 0;
     overflow: hidden;
@@ -89,6 +91,10 @@ canvas {{
     color: #ff2bd6;
     text-shadow: 0 0 30px #ff2bd6, 0 0 60px #ff2bd6;
     margin-bottom: 15px;
+    transition: 0.3s;
+}}
+.title:hover {{
+    text-shadow: 0 0 50px #ff2bd6, 0 0 100px #ff2bd6;
 }}
 .glow-box {{
     border: 2px solid #ff2bd6;
@@ -99,12 +105,21 @@ canvas {{
     transition: box-shadow 0.5s ease;
 }}
 .glow-box:hover {{
-    box-shadow: 0 0 40px #ff2bd6, 0 0 80px #ff2bd6 inset;
+    box-shadow: 0 0 50px #ff2bd6, 0 0 100px #ff2bd6 inset;
 }}
 .stat-box {{
     display: block;
     margin: 5px 0;
     font-size: 16px;
+    transition: all 0.3s ease;
+}}
+.stat-box.pulse {{
+    animation: pulseStat 1.5s infinite;
+}}
+@keyframes pulseStat {{
+    0% {{ text-shadow: 0 0 5px #00ff00; }}
+    50% {{ text-shadow: 0 0 15px #00ff00; }}
+    100% {{ text-shadow: 0 0 5px #00ff00; }}
 }}
 #chart {{
     height: 500px;
@@ -136,21 +151,23 @@ canvas {{
 </head>
 <body>
 
+<audio id="ding" src="https://www.soundjay.com/button/sounds/button-3.mp3"></audio>
+
 <canvas id="matrix"></canvas>
 
 <div class="container">
     <div class="title">🤖 TradeClaw</div>
 
     <div class="glow-box">
-        <div class="stat-box">PnL: {pnl}</div>
+        <div class="stat-box" id="pnl">PnL: {pnl}</div>
         <div class="stat-box">Recent Trade: {recent_trade}</div>
         <div class="stat-box">Trading Session: {session_status}</div>
         <div class="message-box">Automated trades, Proven results.</div>
     </div>
 
-    <!-- TRADINGVIEW LIGHTWEIGHT CHART -->
+    <!-- TRADINGVIEW CHART -->
     <div id="chart" class="glow-box"></div>
-    
+
     <!-- CURRENT POSITIONS -->
     <div id="positions-box" class="glow-box">
         <strong>Current Positions:</strong><br>
@@ -158,15 +175,42 @@ canvas {{
     </div>
 </div>
 
-<!-- ---------------- MATRIX RAIN ---------------- -->
+<script src="https://s3.tradingview.com/tv.js"></script>
 <script>
+new TradingView.widget({{
+  "width": "100%",
+  "height": 500,
+  "symbol": "NASDAQ:NFLX",
+  "interval": "15",
+  "timezone": "Etc/UTC",
+  "theme": "dark",
+  "style": "1",
+  "locale": "en",
+  "container_id": "chart",
+  "hide_side_toolbar": true,
+  "allow_symbol_change": true,
+  "studies": [],
+  "overrides": {{
+    "mainSeriesProperties.candleStyle.upColor": "#DA70D6",
+    "mainSeriesProperties.candleStyle.downColor": "#000000",
+    "mainSeriesProperties.candleStyle.wickUpColor": "#000000",
+    "mainSeriesProperties.candleStyle.wickDownColor": "#000000",
+    "volume.volume.color.0": "#DA70D6",
+    "volume.volume.color.1": "#000000",
+    "volume.volume.transparency": 0
+  }}
+}});
+</script>
+
+<script>
+// MATRIX GREEN RAIN
 const canvas = document.getElementById("matrix");
 const ctx = canvas.getContext("2d");
 canvas.height = window.innerHeight;
 canvas.width = window.innerWidth;
 const letters = "01ABCDEFGHIJKLMNOPQRSTUVWXYZ$#@%&*";
 const fontSize = 14;
-const columns = canvas.width / fontSize;
+const columns = Math.floor(canvas.width / fontSize);
 const drops = Array.from({length: columns}, () => 1);
 function draw() {{
     ctx.fillStyle = "rgba(0, 0, 0, 0.05)";
@@ -183,38 +227,9 @@ function draw() {{
 setInterval(draw, 35);
 </script>
 
-<!-- ---------------- TRADINGVIEW LIGHTWEIGHT WIDGET ---------------- -->
-<script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
-<script type="text/javascript">
-new TradingView.widget({{
-  "width": "100%",
-  "height": 500,
-  "symbol": "NASDAQ:NFLX",
-  "interval": "15",
-  "timezone": "Etc/UTC",
-  "theme": "dark",
-  "style": "1",
-  "locale": "en",
-  "container_id": "chart",
-  "hide_side_toolbar": true,
-  "allow_symbol_change": true,
-  "studies": [],
-  "withdateranges": true,
-  "overrides": {{
-    "mainSeriesProperties.candleStyle.upColor": "#DA70D6",
-    "mainSeriesProperties.candleStyle.downColor": "#000000",
-    "mainSeriesProperties.candleStyle.wickUpColor": "#000000",
-    "mainSeriesProperties.candleStyle.wickDownColor": "#000000",
-    "volume.volume.color.0": "#DA70D6",
-    "volume.volume.color.1": "#000000",
-    "volume.volume.transparency": 0
-  }}
-}});
-</script>
-
 </body>
 </html>
-    """
+"""
     return render_template_string(page)
 
 # ----------------------------
