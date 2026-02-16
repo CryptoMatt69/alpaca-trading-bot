@@ -57,68 +57,68 @@ def home():
         pos_html = "Cannot fetch positions"
 
     # ---------------- HTML PAGE
-    page = f"""
+    page = r"""
 <!DOCTYPE html>
 <html>
 <head>
 <title>TradeClaw Terminal</title>
 <style>
-body {{
+body {
     margin: 0;
     overflow: hidden;
     background: black;
     font-family: monospace;
     color: #ff2bd6;
-}}
-canvas {{
+}
+canvas {
     position: fixed;
     top: 0;
     left: 0;
     z-index: 0;
-}}
-.container {{
+}
+.container {
     position: relative;
     z-index: 1;
     padding: 15px;
-}}
-.title {{
+}
+.title {
     font-size: 52px;
     font-weight: 900;
     color: #ff2bd6;
     text-shadow: 0 0 25px #ff2bd6;
-}}
-.glow-box {{
+}
+.glow-box {
     border: 2px solid #ff2bd6;
     box-shadow: 0 0 20px #ff2bd6;
     padding: 15px;
     margin-bottom: 15px;
     background: rgba(0,0,0,0.8);
-}}
-.stat-box {{
+}
+.stat-box {
     display: block;
     margin: 5px 0;
     font-size: 16px;
-}}
-#chart {{
+}
+#chart {
     height: 500px;
     border: 2px solid #ff2bd6;
     box-shadow: 0 0 20px #ff2bd6;
-}}
-#positions-box {{
+}
+#positions-box {
     margin-top: 15px;
     padding: 15px;
     border: 2px solid #ff2bd6;
     box-shadow: 0 0 20px #ff2bd6;
     background: rgba(0,0,0,0.8);
     font-size: 16px;
-}}
-.message-box {{
+}
+.message-box {
     margin-top: 10px;
     font-size: 18px;
     text-align: center;
     color: #00ff00;
     text-shadow: 0 0 10px #00ff00;
-}}
+}
 </style>
 </head>
 <body>
@@ -129,23 +129,23 @@ canvas {{
     <div class="title">🤖 TradeClaw</div>
 
     <div class="glow-box">
-        <div class="stat-box">PnL: {pnl}</div>
-        <div class="stat-box">Recent Trade: {recent_trade}</div>
-        <div class="stat-box">Trading Session: {session_status}</div>
+        <div class="stat-box">PnL: {{pnl}}</div>
+        <div class="stat-box">Recent Trade: {{recent_trade}}</div>
+        <div class="stat-box">Trading Session: {{session_status}}</div>
         <div class="message-box">Automated trades, Proven results.</div>
     </div>
 
     <!-- TRADINGVIEW CHART -->
     <div id="chart">
         <iframe 
-            src="https://s.tradingview.com/widgetembed/?frameElementId=tradingview_12345&symbol=NASDAQ%3ANFLX&interval=15&hidesidetoolbar=1&symboledit=1&saveimage=1&toolbarbg=000000&studies=[]&theme=dark&style=1&timezone=Etc%2FUTC&studies_overrides={{'volume.volume.color.0':'#DA70D6','volume.volume.color.1':'#000000','volume.volume.transparency':0,'volume.volume ma.color':'#DA70D6','mainSeriesProperties.candleStyle.upColor':'#DA70D6','mainSeriesProperties.candleStyle.downColor':'#000000','mainSeriesProperties.candleStyle.wickUpColor':'#000000','mainSeriesProperties.candleStyle.wickDownColor':'#000000'}}"
+            src="https://s.tradingview.com/widgetembed/?frameElementId=tradingview_12345&symbol=NASDAQ%3ANFLX&interval=15&hidesidetoolbar=1&symboledit=1&saveimage=1&toolbarbg=000000&studies=[]&theme=dark&style=1&timezone=Etc%2FUTC&studies_overrides=%7B'volume.volume.color.0':'#DA70D6','volume.volume.color.1':'#000000','volume.volume.transparency':0,'volume.volume ma.color':'#DA70D6','mainSeriesProperties.candleStyle.upColor':'#DA70D6','mainSeriesProperties.candleStyle.downColor':'#000000','mainSeriesProperties.candleStyle.wickUpColor':'#000000','mainSeriesProperties.candleStyle.wickDownColor':'#000000'%7D"
             style="width:100%; height:500px;" allowtransparency="true" frameborder="0"></iframe>
     </div>
 
     <!-- CURRENT POSITIONS -->
     <div id="positions-box" class="glow-box">
         <strong>Current Positions:</strong><br>
-        {pos_html}
+        {{pos_html}}
     </div>
 </div>
 
@@ -158,25 +158,32 @@ canvas.width = window.innerWidth;
 const letters = "01ABCDEFGHIJKLMNOPQRSTUVWXYZ$#@%&*";
 const fontSize = 14;
 const columns = Math.floor(canvas.width / fontSize);
-const drops = Array.from({{length: columns}}, () => 1); // double {{}} to escape f-string
-function draw() {{
+const drops = Array.from({length: columns}, () => 1);
+
+function draw() {
     ctx.fillStyle = "rgba(0, 0, 0, 0.05)";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.fillStyle = "#00ff00";
     ctx.font = fontSize + "px monospace";
-    for (let i = 0; i < drops.length; i++) {{
+    for (let i = 0; i < drops.length; i++) {
         const text = letters[Math.floor(Math.random() * letters.length)];
         ctx.fillText(text, i * fontSize, drops[i] * fontSize);
         if (drops[i] * fontSize > canvas.height && Math.random() > 0.975) drops[i] = 0;
         drops[i]++;
-    }}
-}}
+    }
+}
 setInterval(draw, 35);
 </script>
 </body>
 </html>
     """
-    return render_template_string(page)
+
+    # Render with Flask variables
+    return render_template_string(page,
+                                  pnl=pnl,
+                                  recent_trade=recent_trade,
+                                  session_status=session_status,
+                                  pos_html=pos_html)
 
 # ----------------------------
 # WEBHOOK
