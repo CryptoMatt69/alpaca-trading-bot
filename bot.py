@@ -20,21 +20,36 @@ if not all([API_KEY, API_SECRET, BASE_URL]):
 api = tradeapi.REST(API_KEY, API_SECRET, BASE_URL, api_version="v2")
 
 # ----------------------------
-# Home route with hacker terminal + TradingView chart + stats
+# Home route
 @app.route("/", methods=["GET"])
 def home():
-    # Trading session
     try:
+        # Session + live EST time
         clock = api.get_clock()
-        session_open = clock.is_open
+        est_now = datetime.now(pytz.timezone("US/Eastern")).strftime("%Y-%m-%d %I:%M:%S %p")
+        session_status = "OPEN 🟢" if clock.is_open else "CLOSED 🔴"
+        session_text = f"{session_status} ({est_now} EST)"
     except:
-        session_open = None
+        session_text = "UNKNOWN"
 
-    # Example stats
-    proven_capital = "$1,245.33"
-    recent_trade = "NFLX BUY 1"
+    try:
+        # Current PnL / equity
+        account = api.get_account()
+        pnl = f"${float(account.equity):,.2f}"
+    except:
+        pnl = "N/A"
 
-    # Current positions
+    try:
+        # Recent trade
+        orders = api.list_orders(status='closed', limit=1, nested=True, direction='desc')
+        recent_trade = "None"
+        if orders:
+            o = orders[0]
+            recent_trade = f"{o.symbol} {o.side.upper()} {o.filled_qty}"
+    except:
+        recent_trade = "N/A"
+
+    # Current positions for box under chart
     try:
         positions = api.list_positions()
         pos_html = ""
@@ -46,6 +61,7 @@ def home():
     except:
         pos_html = "Cannot fetch positions"
 
+    # ----------------------------
     page = f"""
 <!DOCTYPE html>
 <html>
@@ -58,7 +74,6 @@ body {{
     background: black;
     font-family: monospace;
     color: #ff2bd6;
-    font-size: 14px;
 }}
 canvas {{
     position: fixed;
@@ -69,40 +84,33 @@ canvas {{
 .container {{
     position: relative;
     z-index: 1;
+    padding: 20px;
+}}
+.glow-box {{
     padding: 15px;
-    width: 100%;
-    box-sizing: border-box;
-}}
-.title {{
-    font-size: 36px;
-    font-weight: 900;
-    color: #ff2bd6;
-    text-shadow: 0 0 15px #ff2bd6;
-}}
-.stats-box {{
-    background: rgba(0,0,0,0.8);
-    padding: 10px 15px;
-    margin-bottom: 15px;
     border: 2px solid #ff2bd6;
     box-shadow: 0 0 20px #ff2bd6;
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
+    margin-bottom: 15px;
+}}
+.title {{
+    font-size: 48px;
+    font-weight: 900;
+    color: #ff2bd6;
+    text-shadow: 0 0 20px #ff2bd6;
 }}
 .stat-box {{
-    margin: 3px 0;
+    font-size: 16px;
+    margin: 5px 0;
 }}
 #chart {{
     height: 400px;
-    border: 2px solid #ff2bd6;
-    box-shadow: 0 0 20px #ff2bd6;
 }}
 #positions-box {{
-    margin-top: 10px;
-    padding: 10px 15px;
+    padding: 15px;
     border: 2px solid #ff2bd6;
     box-shadow: 0 0 20px #ff2bd6;
     background: rgba(0,0,0,0.8);
+    font-size: 16px;
 }}
 </style>
 </head>
@@ -111,29 +119,27 @@ canvas {{
 <canvas id="matrix"></canvas>
 
 <div class="container">
-    <div class="title">🤖 TradeClaw</div>
-
-    <!-- TOP STATS BOX -->
-    <div class="stats-box">
-        <div class="stat-box">Proven Capital: {proven_capital}</div>
+    <!-- TradeClaw Title + Top Stats -->
+    <div class="glow-box">
+        <div class="title">🤖 TradeClaw</div>
+        <div class="stat-box">PnL: {pnl}</div>
         <div class="stat-box">Recent Trade: {recent_trade}</div>
-        <div class="stat-box">Trading Session: <span id="session-status"></span></div>
-        <div class="stat-box">Automated trades, Proven results.</div>
+        <div class="stat-box" id="session-box">Trading Session: {session_text}</div>
+        <div class="stat-box" id="message-box">Automated trades, Proven results.</div>
     </div>
 
-    <!-- TRADINGVIEW CHART -->
-    <div id="chart">
+    <!-- TradingView Chart -->
+    <div class="glow-box" id="chart">
         <iframe 
-            src="https://s.tradingview.com/widgetembed/?frameElementId=tradingview_12345&symbol=NASDAQ%3ANFLX&interval=15&hidesidetoolbar=1&symboledit=1&saveimage=1&toolbarbg=000000&studies=[]&theme=dark&style=1&timezone=Etc%2FUTC&studies_overrides={{'volume.volume.color.0':'#DA70D6','volume.volume.color.1':'#000000','mainSeriesProperties.candleStyle.upColor':'#DA70D6','mainSeriesProperties.candleStyle.downColor':'#000000','mainSeriesProperties.candleStyle.wickUpColor':'#000000','mainSeriesProperties.candleStyle.wickDownColor':'#000000'}}"
+            src="https://s.tradingview.com/widgetembed/?frameElementId=tradingview_12345&symbol=NASDAQ%3ANFLX&interval=15&hidesidetoolbar=1&symboledit=1&saveimage=1&toolbarbg=000000&studies=[]&theme=dark&style=1&timezone=Etc%2FUTC&studies_overrides={{'volume.volume.color.0':'#DA70D6','volume.volume.color.1':'#000000','volume.volume.transparency':0,'mainSeriesProperties.candleStyle.upColor':'#DA70D6','mainSeriesProperties.candleStyle.downColor':'#000000','mainSeriesProperties.candleStyle.wickUpColor':'#000000','mainSeriesProperties.candleStyle.wickDownColor':'#000000'}}"
             style="width:100%; height:400px; border:0;" allowtransparency="true" frameborder="0"></iframe>
     </div>
 
-    <!-- CURRENT POSITIONS -->
-    <div id="positions-box">
+    <!-- Current Positions -->
+    <div class="glow-box" id="positions-box">
         <strong>Current Positions:</strong><br>
         {pos_html}
     </div>
-
 </div>
 
 <script>
@@ -143,38 +149,32 @@ const ctx = canvas.getContext("2d");
 canvas.height = window.innerHeight;
 canvas.width = window.innerWidth;
 const letters = "01ABCDEFGHIJKLMNOPQRSTUVWXYZ$#@%&*";
-const fontSize = 14;
+const fontSize = 16;
 const columns = canvas.width / fontSize;
-const drops = [];
-for (let x = 0; x < columns; x++) drops[x] = 1;
+const drops = Array.from({length: columns}, () => 1);
 
 function draw() {{
-    ctx.fillStyle = "rgba(0,0,0,0.05)";
-    ctx.fillRect(0,0,canvas.width,canvas.height);
+    ctx.fillStyle = "rgba(0, 0, 0, 0.05)";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.fillStyle = "#00ff00";
     ctx.font = fontSize + "px monospace";
-    for (let i=0;i<drops.length;i++){{
-        const text = letters[Math.floor(Math.random()*letters.length)];
-        ctx.fillText(text,i*fontSize,drops[i]*fontSize);
-        if(drops[i]*fontSize>canvas.height && Math.random()>0.975)drops[i]=0;
+    for (let i = 0; i < drops.length; i++) {{
+        const text = letters[Math.floor(Math.random() * letters.length)];
+        ctx.fillText(text, i * fontSize, drops[i] * fontSize);
+        if (drops[i] * fontSize > canvas.height && Math.random() > 0.975) drops[i] = 0;
         drops[i]++;
     }}
 }}
 setInterval(draw, 35);
 
-// ----------------------------
-// SESSION TIME (EST)
-function updateSession() {{
-    const now = new Date();
-    const estOffset = -5; // EST
-    const utc = now.getTime() + now.getTimezoneOffset()*60000;
-    const est = new Date(utc + (3600000*estOffset));
-    const session = {str(session_open).lower()};
-    const statusText = session ? "OPEN 🟢" : "CLOSED 🔴";
-    document.getElementById("session-status").innerText = statusText + " | " + est.toLocaleTimeString();
-}}
-setInterval(updateSession, 1000);
-updateSession();
+// Live update EST session every second
+setInterval(() => {{
+    const now = new Date().toLocaleString("en-US", {{timeZone:"America/New_York", hour12:true}});
+    const sessionElem = document.getElementById("session-box");
+    if (sessionElem) {{
+        sessionElem.innerText = "Trading Session: {session_status} (" + now + " EST)";
+    }}
+}}, 1000);
 </script>
 </body>
 </html>
@@ -188,36 +188,25 @@ def webhook():
     try:
         data = request.get_json()
         print("📩 Webhook received:", data)
-
         if not data:
             return jsonify({"error": "No JSON received"}), 400
 
         symbol = data.get("symbol")
         qty = data.get("qty")
         side = data.get("side")
-
         if not all([symbol, qty, side]):
             return jsonify({"error": "Missing parameters"}), 400
 
         side = side.lower()
-
         if side in ["buy", "sell"]:
-            order = api.submit_order(
-                symbol=symbol,
-                qty=qty,
-                side=side,
-                type="market",
-                time_in_force="gtc"
-            )
+            order = api.submit_order(symbol=symbol, qty=qty, side=side,
+                                     type="market", time_in_force="gtc")
             return jsonify({"status": "order_submitted", "id": order.id})
-
         elif side in ["close_long", "close_short"]:
             api.close_position(symbol)
             return jsonify({"status": "position_closed"})
-
         else:
             return jsonify({"error": "Invalid side"}), 400
-
     except Exception as e:
         print("❌ Error:", str(e))
         return jsonify({"error": str(e)}), 500
