@@ -22,12 +22,15 @@ api = tradeapi.REST(API_KEY, API_SECRET, BASE_URL, api_version="v2")
 # Home route with hacker terminal + chart + stats
 @app.route("/", methods=["GET"])
 def home():
+    # Clock / session
     try:
         clock = api.get_clock()
         session_status = "OPEN 🟢" if clock.is_open else "CLOSED 🔴"
-    except:
+    except Exception as e:
+        print("Clock error:", e)
         session_status = "UNKNOWN"
 
+    # Positions
     try:
         positions = api.list_positions()
         pos_html = ""
@@ -36,10 +39,11 @@ def home():
             pos_html += f"{p.symbol}: {side} {abs(int(p.qty))} @ ${p.avg_entry_price}<br>"
         if not pos_html:
             pos_html = "No open positions"
-    except:
+    except Exception as e:
+        print("Positions error:", e)
         pos_html = "Cannot fetch positions"
 
-    # Example PnL and recent trade - replace with dynamic logic if needed
+    # Example PnL and recent trade - replace with dynamic logic
     pnl = "$1,245.33"
     recent_trade = "NFLX BUY 1"
 
@@ -71,16 +75,26 @@ canvas {{
 .title {{
     font-size: 48px;
     color: #ff2bd6;
-    text-shadow: 0 0 10px #ff2bd6;
+    text-shadow: 0 0 20px #ff2bd6;
 }}
 .stats {{
     margin-top: 10px;
     margin-bottom: 20px;
     font-size: 16px;
+    padding: 20px;
+    border: 2px solid #ff2bd6;
+    box-shadow: 0 0 20px #ff2bd6;
+    background: rgba(0,0,0,0.8);
 }}
 .stat-box {{
     display: inline-block;
     margin-right: 25px;
+}}
+#chart {{
+    height:600px;
+    border: 2px solid #ff2bd6;
+    box-shadow: 0 0 20px #ff2bd6;
+    background: rgba(0,0,0,0.9);
 }}
 </style>
 </head>
@@ -98,22 +112,19 @@ canvas {{
         <div class="stat-box">Current Positions:<br>{pos_html}</div>
     </div>
 
-    <div id="chart" style="height:600px;"></div>
+    <div id="chart"></div>
 </div>
 
 <script>
 // MATRIX GREEN RAIN
 const canvas = document.getElementById("matrix");
 const ctx = canvas.getContext("2d");
-
 canvas.height = window.innerHeight;
 canvas.width = window.innerWidth;
-
 const letters = "01ABCDEFGHIJKLMNOPQRSTUVWXYZ$#@%&*";
 const fontSize = 16;
 const columns = canvas.width / fontSize;
-const drops = [];
-for (let x = 0; x < columns; x++) drops[x] = 1;
+const drops = Array.from({length: columns}, () => 1);
 
 function draw() {{
     ctx.fillStyle = "rgba(0, 0, 0, 0.05)";
@@ -123,38 +134,53 @@ function draw() {{
     for (let i = 0; i < drops.length; i++) {{
         const text = letters[Math.floor(Math.random() * letters.length)];
         ctx.fillText(text, i * fontSize, drops[i] * fontSize);
-        if (drops[i] * fontSize > canvas.height && Math.random() > 0.975) drops[i] = 0;
+        if(drops[i] * fontSize > canvas.height && Math.random() > 0.975) drops[i] = 0;
         drops[i]++;
     }}
 }}
 setInterval(draw, 35);
 
-// SAMPLE CANDLE DATA
+// SAMPLE CHART DATA
 var trace = {{
     x: ["2024-01-01","2024-01-02","2024-01-03","2024-01-04"],
-    close: [150, 160, 155, 170],
-    open: [140, 155, 160, 165],
-    high: [165, 170, 165, 175],
-    low: [135, 150, 150, 160],
+    open: [140,155,160,165],
+    high: [165,170,165,175],
+    low: [135,150,150,160],
+    close: [150,160,155,170],
     type: "candlestick",
     increasing: {{line: {{color: "black"}}, fillcolor: "#DA70D6"}}, // orchid pink up
     decreasing: {{line: {{color: "black"}}, fillcolor: "black"}},   // black down
+    xaxis: "x",
+    yaxis: "y"
 }};
 
 var volume = {{
     x: ["2024-01-01","2024-01-02","2024-01-03","2024-01-04"],
-    y: [1000, 2000, 1500, 2500],
+    y: [1000,2000,1500,2500],
     type: "bar",
-    marker: {{color: ["#DA70D6", "black", "#DA70D6", "#DA70D6"]}}
+    marker: {{color: ["#DA70D6","black","#DA70D6","#DA70D6"]}},
+    xaxis: "x",
+    yaxis: "y2"
 }};
 
-Plotly.newPlot("chart", [trace, volume], {{
+var layout = {{
     dragmode: "zoom",
     showlegend: false,
     margin: {{t:40}},
     xaxis: {{rangeslider: {{visible:false}}}},
     yaxis: {{title:"Price"}},
-}});
+    yaxis2: {{
+        title: "Volume",
+        overlaying: "y",
+        side: "right",
+        showgrid: false,
+        position: 0.15
+    }},
+    plot_bgcolor: "black",
+    paper_bgcolor: "black"
+}};
+
+Plotly.newPlot("chart", [trace, volume], layout);
 </script>
 </body>
 </html>
@@ -168,7 +194,6 @@ def webhook():
     try:
         data = request.get_json()
         print("📩 Webhook received:", data)
-
         if not data:
             return jsonify({"error": "No JSON received"}), 400
 
@@ -181,22 +206,17 @@ def webhook():
 
         side = side.lower()
 
-        if side in ["buy", "sell"]:
+        if side in ["buy","sell"]:
             order = api.submit_order(
-                symbol=symbol,
-                qty=qty,
-                side=side,
-                type="market",
-                time_in_force="gtc"
+                symbol=symbol, qty=qty, side=side,
+                type="market", time_in_force="gtc"
             )
-            return jsonify({"status": "order_submitted", "id": order.id})
-
-        elif side in ["close_long", "close_short"]:
+            return jsonify({"status":"order_submitted","id":order.id})
+        elif side in ["close_long","close_short"]:
             api.close_position(symbol)
-            return jsonify({"status": "position_closed"})
-
+            return jsonify({"status":"position_closed"})
         else:
-            return jsonify({"error": "Invalid side"}), 400
+            return jsonify({"error":"Invalid side"}), 400
 
     except Exception as e:
         print("❌ Error:", str(e))
@@ -204,8 +224,9 @@ def webhook():
 
 # ----------------------------
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5100))
+    port = int(os.environ.get("PORT"))
     app.run(host="0.0.0.0", port=port)
+
 
 
 
