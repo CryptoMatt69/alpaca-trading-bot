@@ -2,6 +2,7 @@ import os
 from flask import Flask, request, jsonify, render_template_string
 import alpaca_trade_api as tradeapi
 from dotenv import load_dotenv
+from datetime import datetime
 
 # ----------------------------
 # Load environment variables
@@ -28,8 +29,14 @@ def home():
     except:
         session_status = "UNKNOWN"
 
-    # Example stats
-    pnl = "$1,245.33"
+    # Dynamic PnL
+    try:
+        account = api.get_account()
+        pnl = f"${float(account.equity) - float(account.last_equity):,.2f}"
+    except:
+        pnl = "$0.00"
+
+    # Example recent trade
     recent_trade = "NFLX BUY 1"
 
     # Current positions for box under chart
@@ -68,27 +75,28 @@ canvas {{
     z-index: 1;
     padding: 30px;
 }}
+.glow-box {{
+    padding: 20px;
+    border: 2px solid #ff2bd6;
+    box-shadow: 0 0 20px #ff2bd6;
+    background: rgba(0,0,0,0.8);
+    margin-bottom: 20px;
+}}
 .title {{
     font-size: 48px;
     color: #ff2bd6;
     text-shadow: 0 0 20px #ff2bd6;
-}}
-.stats {{
     margin-bottom: 10px;
-    font-size: 16px;
 }}
 .stat-box {{
     display: inline-block;
     margin-right: 25px;
-}}
-.stats-message {{
-    font-size: 18px;
-    color: #ff2bd6;
-    text-shadow: 0 0 15px #ff2bd6;
-    margin-bottom: 20px;
+    font-size: 16px;
 }}
 #chart {{
     height: 600px;
+    border: 2px solid #ff2bd6;
+    box-shadow: 0 0 20px #ff2bd6;
 }}
 #positions-box {{
     margin-top: 20px;
@@ -98,6 +106,15 @@ canvas {{
     background: rgba(0,0,0,0.8);
     font-size: 16px;
 }}
+.pulse {{
+    animation: pulse 1.5s infinite;
+    color: #ff2bd6;
+}}
+@keyframes pulse {{
+    0% {{ opacity: 1; }}
+    50% {{ opacity: 0.4; }}
+    100% {{ opacity: 1; }}
+}}
 </style>
 </head>
 <body>
@@ -105,34 +122,26 @@ canvas {{
 <canvas id="matrix"></canvas>
 
 <div class="container">
-    <div class="title">TradeClaw</div>
-
-    <!-- TOP STATS -->
-    <div class="stats">
+    <div class="glow-box">
+        <div class="title">TradeClaw</div>
         <div class="stat-box">PnL: {pnl}</div>
         <div class="stat-box">Recent Trade: {recent_trade}</div>
         <div class="stat-box">Trading Session: {session_status}</div>
+        <div class="stat-box pulse">Automated trades, proven results.</div>
     </div>
-
-    <!-- NEON TAGLINE -->
-    <div class="stats-message">Automated trades, proven results.</div>
 
     <!-- TRADINGVIEW CHART -->
-    <div id="chart">
-        <iframe 
-            src="https://s.tradingview.com/widgetembed/?frameElementId=tradingview_12345&symbol=NASDAQ%3ANFLX&interval=15&hidesidetoolbar=1&symboledit=1&saveimage=1&toolbarbg=000000&studies=[]&theme=dark&style=1&timezone=Etc%2FUTC&studies_overrides={{'volume.volume.color.0':'#DA70D6','volume.volume.color.1':'#000000','volume.volume.transparency':0,'volume.volume ma.color':'#DA70D6','mainSeriesProperties.candleStyle.upColor':'#DA70D6','mainSeriesProperties.candleStyle.downColor':'#000000','mainSeriesProperties.candleStyle.wickUpColor':'#000000','mainSeriesProperties.candleStyle.wickDownColor':'#000000'}}"
-            style="width:100%; height:600px; border:0;" allowtransparency="true" frameborder="0"></iframe>
-    </div>
+    <div id="chart"></div>
 
     <!-- CURRENT POSITIONS -->
     <div id="positions-box">
         <strong>Current Positions:</strong><br>
         {pos_html}
     </div>
-
 </div>
 
-<script>
+<script src="https://s3.tradingview.com/tv.js"></script>
+<script type="text/javascript">
 // MATRIX GREEN RAIN
 const canvas = document.getElementById("matrix");
 const ctx = canvas.getContext("2d");
@@ -143,7 +152,8 @@ canvas.width = window.innerWidth;
 const letters = "01ABCDEFGHIJKLMNOPQRSTUVWXYZ$#@%&*";
 const fontSize = 16;
 const columns = Math.floor(canvas.width / fontSize);
-const drops = Array(columns).fill(1);
+const drops = [];
+for (let x = 0; x < columns; x++) drops[x] = 1;
 
 function draw() {{
     ctx.fillStyle = "rgba(0, 0, 0, 0.05)";
@@ -158,6 +168,37 @@ function draw() {{
     }}
 }}
 setInterval(draw, 35);
+
+// TRADINGVIEW WIDGET
+new TradingView.widget({{
+  "container_id": "chart",
+  "width": "100%",
+  "height": 600,
+  "symbol": "NASDAQ:NFLX",
+  "interval": "15",
+  "timezone": "Etc/UTC",
+  "theme": "dark",
+  "style": "1",
+  "toolbar_bg": "#000000",
+  "hide_top_toolbar": true,
+  "hide_legend": true,
+  "withdateranges": false,
+  "allow_symbol_change": true,
+  "studies": [],
+  "locale": "en",
+  "mainSeriesProperties": {{
+    "candleStyle": {{
+      "upColor": "#DA70D6",
+      "downColor": "#000000",
+      "wickUpColor": "#000000",
+      "wickDownColor": "#000000"
+    }}
+  }},
+  "volumeStyle": {{
+    "upColor": "#DA70D6",
+    "downColor": "#000000"
+  }}
+}});
 </script>
 </body>
 </html>
@@ -208,7 +249,8 @@ def webhook():
 # ----------------------------
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5100))
-    app.run(host="0.0.0.0", port=port)
+    app.run(host="0.0.0.0", port=port, threaded=True)
+
 
 
 
