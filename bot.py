@@ -130,8 +130,8 @@ body {
 
     <div class="card">
         <h2>Account Overview</h2>
-        <div class="stat">PnL: <span id="pnl">Loading...</span></div>
-        <div class="stat">Recent Trade: <span id="recent_trade">Loading...</span></div>
+        <div class="stat">PnL: <span id="pnl">$0.00</span></div>
+        <div class="stat">Recent Trade: <span id="recent_trade">N/A</span></div>
         <div class="stat">Trading Session: <span id="session_status">Loading...</span></div>
         <div class="message-box">Automated trades, Proven results.</div>
     </div>
@@ -151,7 +151,7 @@ body {
         </div>
         <div id="chart">
             <iframe id="chart_iframe" 
-                src="https://s.tradingview.com/widgetembed/?frameElementId=tradingview_12345&symbol=NASDAQ%3AAAPL&interval=5&hidesidetoolbar=1&symboledit=1&saveimage=1&toolbarbg=000000&studies=[]&theme=dark&style=1&timezone=Etc%2FUTC"
+                src="https://s.tradingview.com/widgetembed/?frameElementId=tradingview_12345&symbol=NASDAQ%3AAAPL&interval=5&hidesidetoolbar=1&symboledit=1&saveimage=1&toolbarbg=000000&studies=[]&theme=dark&style=1&timezone=Etc%2FUTC&studies_overrides={'mainSeriesProperties.candleStyle.upColor':'#DA70D6','mainSeriesProperties.candleStyle.downColor':'#000000','mainSeriesProperties.candleStyle.wickUpColor':'#DA70D6','mainSeriesProperties.candleStyle.wickDownColor':'#000000','mainSeriesProperties.candleStyle.borderUpColor':'#DA70D6','mainSeriesProperties.candleStyle.borderDownColor':'#000000','paneProperties.background':'#000000'}"
                 style="width:100%; height:100%;" allowtransparency="true" frameborder="0"></iframe>
         </div>
     </div>
@@ -168,7 +168,7 @@ function updateChart() {
     const symbol = document.getElementById('chart_symbol').value.toUpperCase() || "AAPL";
     const interval = document.getElementById('chart_interval').value;
     const iframe = document.getElementById('chart_iframe');
-    iframe.src = `https://s.tradingview.com/widgetembed/?frameElementId=tradingview_12345&symbol=NASDAQ%3A${symbol}&interval=${interval}&hidesidetoolbar=1&symboledit=1&saveimage=1&toolbarbg=000000&studies=[]&theme=dark&style=1&timezone=Etc%2FUTC`;
+    iframe.src = `https://s.tradingview.com/widgetembed/?frameElementId=tradingview_12345&symbol=NASDAQ%3A${symbol}&interval=${interval}&hidesidetoolbar=1&symboledit=1&saveimage=1&toolbarbg=000000&studies=[]&theme=dark&style=1&timezone=Etc%2FUTC&studies_overrides={'mainSeriesProperties.candleStyle.upColor':'#DA70D6','mainSeriesProperties.candleStyle.downColor':'#000000','mainSeriesProperties.candleStyle.wickUpColor':'#DA70D6','mainSeriesProperties.candleStyle.wickDownColor':'#000000','mainSeriesProperties.candleStyle.borderUpColor':'#DA70D6','mainSeriesProperties.candleStyle.borderDownColor':'#000000','paneProperties.background':'#000000'}`;
 }
 
 // ------------------- Live Stats -------------------
@@ -182,7 +182,7 @@ async function fetchData() {
         // Animate PnL
         const pnlEl = document.getElementById('pnl');
         const pnlValue = parseFloat(data.pnl.replace('$','').replace(',','')) || 0;
-        const color = pnlValue >= 0 ? "#00ff00" : "#ff3b3b";
+        const color = pnlValue >= 0 ? "#DA70D6" : "#ff3b3b";
         pnlEl.style.color = color;
         animateNumber(pnlEl, lastPnl, pnlValue);
         lastPnl = pnlValue;
@@ -231,7 +231,7 @@ setInterval(fetchData, 3000);
 def api_stats():
     try:
         clock = api.get_clock()
-        est_now = datetime.now(pytz.timezone("US/Eastern")).strftime("%H:%M:%S EST")
+        est_now = datetime.now(pytz.timezone("US/Eastern")).strftime("%I:%M:%S %p EST")
         session_status = f"{'OPEN 🟢' if clock.is_open else 'CLOSED 🔴'} {est_now}"
     except:
         session_status = "UNKNOWN"
@@ -306,7 +306,3 @@ def webhook():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5100))
     app.run(host="0.0.0.0", port=port)
-
-
-
-
