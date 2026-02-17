@@ -34,7 +34,8 @@ html, body { background-color: #0d0d0d; color: white; font-family: 'Roboto Mono'
 .card h2 { margin-top: 0; font-size: 24px; color: #ff2bd6; }
 .stat { font-size: 18px; margin: 5px 0; }
 .chart-select { display: flex; gap: 10px; margin-bottom: 10px; }
-.chart-select input, .chart-select select { padding: 5px 10px; border-radius: 8px; border: none; font-size: 16px; }
+.chart-select input { padding: 5px 10px; border-radius: 8px; border: none; font-size: 16px; }
+.chart-select select { padding: 5px 10px; border-radius: 8px; border: none; font-size: 16px; }
 .chart-select button { padding: 5px 12px; border-radius: 8px; border: none; background: #ff2bd6; color: #fff; cursor: pointer; font-weight: bold; transition: 0.2s; }
 .chart-select button:hover { background: #ff7f50; }
 .message-box { text-align: center; font-size: 20px; color: #00ff00; text-shadow: 0 0 10px #00ff00; margin-top: 10px; }
@@ -50,7 +51,7 @@ html, body { background-color: #0d0d0d; color: white; font-family: 'Roboto Mono'
     <div class="card">
         <h2>Account Overview</h2>
         <div class="stat">Balance: <span id="balance">$0.00</span></div>
-        <div class="stat">PnL: <span id="pnl">$0.00</span></div>
+        <div class="stat">Daily Change: <span id="pnl">$0.00</span></div>
         <div class="stat">Recent Trade: <span id="recent_trade">N/A</span></div>
         <div class="stat">Trading Session: <span id="session_status">Loading...</span></div>
         <div class="message-box">Automated trades, Proven results.</div>
@@ -69,7 +70,6 @@ html, body { background-color: #0d0d0d; color: white; font-family: 'Roboto Mono'
             </select>
             <button onclick="updateChart()">Load Chart</button>
             <button onclick="toggleMultiView()">Show Multi-View</button>
-            <input type="number" id="multi_count" value="8" min="1" max="10" style="width:70px;" />
         </div>
 
         <div id="chart">
@@ -104,16 +104,14 @@ function updateChart() {
 // ------------------- Multi-View -------------------
 function toggleMultiView() {
     const container = document.getElementById('multi_chart_container');
-    const count = parseInt(document.getElementById('multi_count').value) || 8;
-
-    const defaultTickers = ["META","WMT","HOOD","RIVN","AAPL","PLTR","NVDA","TSLA"].slice(0, count);
-
     if(container.style.display === "none") {
         container.style.display = "grid";
         container.style.gridTemplateColumns = "repeat(2, 1fr)";
+
+        const tickers = ["META","WMT","HOOD","RIVN","AAPL","PLTR","NVDA","TSLA"];
         container.innerHTML = "";
 
-        defaultTickers.forEach(symbol => {
+        tickers.forEach(symbol => {
             const chartDiv = document.createElement("div");
             chartDiv.style.marginBottom = "10px";
 
@@ -215,8 +213,10 @@ def api_stats():
 
     try:
         account = api.get_account()
-        balance = float(account.cash)       # cash as balance
-        pnl = float(account.daily_change)   # daily change as PnL
+        # Cash as balance
+        balance = float(account.cash.replace(',', ''))
+        # Daily Change as PnL
+        pnl = float(account.equity) - float(account.last_equity)
         balance_str = f"${balance:,.2f}"
         pnl_str = f"${pnl:,.2f}"
 
@@ -289,3 +289,4 @@ def webhook():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5100))
     app.run(host="0.0.0.0", port=port)
+
