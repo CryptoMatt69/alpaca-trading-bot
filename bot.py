@@ -40,7 +40,7 @@ def home():
     page = """<!DOCTYPE html>
 <html>
 <head>
-<title>🤖 TradeClaw Premium Terminal</title>
+<title>TradeClaw Premium</title>
 <style>
 html, body { background-color: #0d0d0d; color: white; font-family: 'Roboto Mono', monospace; }
 .container { max-width: 1300px; margin: 20px auto; padding: 10px; }
@@ -166,7 +166,24 @@ def api_stats():
         account = api.get_account()
         balance = float(account.cash) + sum(float(p.market_value) for p in api.list_positions())
         balance_str = f"${balance:,.2f}"
-        pnl_str = "$0.00"
+
+        positions = api.list_positions()
+        total_pnl = 0
+        for p in positions:
+            side = "LONG" if float(p.qty) > 0 else "SHORT"
+            qty = abs(float(p.qty))
+            entry = float(p.avg_entry_price)
+            current_price = float(p.current_price)
+            unrealized_pnl = (current_price - entry)*qty if side=="LONG" else (entry - current_price)*qty
+            total_pnl += unrealized_pnl
+            pos_list.append({
+                "symbol": p.symbol,
+                "qty": qty,
+                "avg_entry_price": entry,
+                "side": side,
+                "unrealized_pnl": f"${unrealized_pnl:,.2f}"
+            })
+        pnl_str = f"${total_pnl:,.2f}"
 
         trades = api.list_orders(status='all', limit=10)
         trades.sort(key=lambda x: x.created_at, reverse=True)
@@ -175,20 +192,6 @@ def api_stats():
                 recent_trade = f"{t.symbol} {t.side.upper()} {t.filled_qty} @ ${t.filled_avg_price if t.filled_avg_price else '0.00'}"
                 break
 
-        positions = api.list_positions()
-        for p in positions:
-            side = "LONG" if float(p.qty) > 0 else "SHORT"
-            qty = abs(float(p.qty))
-            entry = float(p.avg_entry_price)
-            current_price = float(p.current_price)
-            unrealized_pnl = (current_price - entry)*qty if side=="LONG" else (entry - current_price)*qty
-            pos_list.append({
-                "symbol": p.symbol,
-                "qty": qty,
-                "avg_entry_price": entry,
-                "side": side,
-                "unrealized_pnl": f"${unrealized_pnl:,.2f}"
-            })
     except Exception as e: print("Stats error:", e)
 
     return jsonify({
@@ -234,9 +237,9 @@ def execute_order(symbol, qty, side):
                     return {"status":"position_closed"}
                 else: return {"status":"no_position_to_close"}
 
-            # FIXED: use get_last_trade
-            last_trade = api.get_last_trade(symbol)
-            current_price = float(last_trade.price) if last_trade and hasattr(last_trade, 'price') else 0.0
+            # FIXED: use get_latest_trade
+            last_trade = api.get_latest_trade(symbol)
+            current_price = float(last_trade.price) if last_trade.price else 0.0
 
             # LONG ENTRY
             if side=="long":
@@ -320,5 +323,4 @@ def execute_order(symbol, qty, side):
 if __name__=="__main__":
     port = int(os.environ.get("PORT",5100))
     app.run(host="0.0.0.0", port=port)
-
 
