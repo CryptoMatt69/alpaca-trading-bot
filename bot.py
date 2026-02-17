@@ -1,6 +1,3 @@
-
-
-
 import os
 from flask import Flask, request, jsonify, render_template_string
 import alpaca_trade_api as tradeapi
@@ -43,7 +40,7 @@ def home():
     page = """<!DOCTYPE html>
 <html>
 <head>
-<title>TradeClaw Premium Terminal</title>
+<title>TradeClaw Premium</title>
 <style>
 html, body { background-color: #0d0d0d; color: white; font-family: 'Roboto Mono', monospace; }
 .container { max-width: 1300px; margin: 20px auto; padding: 10px; }
@@ -62,7 +59,7 @@ html, body { background-color: #0d0d0d; color: white; font-family: 'Roboto Mono'
 </head>
 <body>
 <div class="container">
-    <div class="title"><span style="color:#ff2bd6;">&#128640;</span> TradeClaw Premium</div>
+    <div class="title">🤖 TradeClaw Premium</div>
     <div class="card">
         <h2>Account Overview</h2>
         <div class="stat">Balance: <span id="balance">$0.00</span></div>
@@ -229,6 +226,7 @@ def execute_order(symbol, qty, side):
             current_entry_price = current_pos.get("entry_price", 0)
             current_qty = current_pos.get("qty", 0)
 
+            # Handle close alerts
             if side in ["close_long","close_short"]:
                 if current_side and ((side=="close_long" and current_side=="long") or (side=="close_short" and current_side=="short")):
                     api.close_position(symbol)
@@ -239,6 +237,7 @@ def execute_order(symbol, qty, side):
             last_trade = api.get_last_quote(symbol)
             current_price = float(last_trade.askprice) if last_trade.askprice else 0.0
 
+            # LONG ENTRY
             if side=="long":
                 if current_side=="long": return {"status":"long_already_open"}
                 elif current_side=="short":
@@ -274,6 +273,7 @@ def execute_order(symbol, qty, side):
                 threading.Thread(target=monitor_tp, daemon=True).start()
                 return {"status":"long_opened","order_id":order.id}
 
+            # SHORT ENTRY
             elif side=="short":
                 if current_side=="short": return {"status":"short_already_open"}
                 elif current_side=="long":
@@ -319,3 +319,4 @@ def execute_order(symbol, qty, side):
 if __name__=="__main__":
     port = int(os.environ.get("PORT",5100))
     app.run(host="0.0.0.0", port=port)
+
