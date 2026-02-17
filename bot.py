@@ -1,5 +1,5 @@
 import os
-from flask import Flask, request, jsonify, render_template_string
+from flask import Flask, request, jsonify
 import alpaca_trade_api as tradeapi
 from dotenv import load_dotenv
 from datetime import datetime
@@ -21,9 +21,8 @@ if not all([API_KEY, API_SECRET, BASE_URL]):
 api = tradeapi.REST(API_KEY, API_SECRET, BASE_URL, api_version="v2")
 
 # ----------------------------
-# Track open positions
-open_positions = {}  # symbol -> {'side': 'long'/'short', 'qty': int, 'entry_price': float}
-locks = {}           # symbol -> threading.Lock()
+open_positions = {}
+locks = {}
 
 def get_lock(symbol):
     if symbol not in locks:
@@ -31,286 +30,206 @@ def get_lock(symbol):
     return locks[symbol]
 
 # ----------------------------
-TP_PERCENT = 1.2 / 100  # 1.2% take profit
-SL_PERCENT = 0.6 / 100  # 0.6% stop loss
-
+TP_PERCENT = 1.2 / 100
+SL_PERCENT = 0.6 / 100
+TP_PARTIAL_QTY = 3
+TRAIL_PERCENT = 0.4  # 0.4% trailing stop
 # ----------------------------
+
 @app.route("/", methods=["GET"])
 def home():
-    page = """
-<!DOCTYPE html>
-<html>
-<head>
-<title>TradeClaw Premium Terminal</title>
-<style>
-html, body { background-color: #0d0d0d; color: white; font-family: 'Roboto Mono', monospace; }
-.container { max-width: 1300px; margin: 20px auto; padding: 10px; }
-.title { font-size: 60px; font-weight: 900; text-align: center; background: linear-gradient(90deg, #ff2bd6, #ff7f50); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 30px; }
-.card { background: rgba(0,0,0,0.85); border-radius: 15px; padding: 20px; margin-bottom: 20px; box-shadow: 0 0 40px rgba(255, 43, 214, 0.5); }
-.card h2 { margin-top: 0; font-size: 24px; color: #ff2bd6; }
-.stat { font-size: 18px; margin: 5px 0; }
-.chart-select { display: flex; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
-.chart-select input, .chart-select select { padding: 5px 10px; border-radius: 8px; border: none; font-size: 16px; }
-.chart-select button { padding: 5px 12px; border-radius: 8px; border: none; background: #ff2bd6; color: #fff; cursor: pointer; font-weight: bold; transition: 0.2s; }
-.chart-select button:hover { background: #ff7f50; }
-.message-box { text-align: center; font-size: 20px; color: #00ff00; text-shadow: 0 0 10px #00ff00; margin-top: 10px; }
-#chart { width: 100%; height: 500px; border-radius: 15px; overflow: hidden; box-shadow: 0 0 40px rgba(255, 43, 214, 0.5); margin-bottom: 20px; }
-#multi_chart_container { display: none; margin-top: 20px; gap: 10px; }
-</style>
-</head>
-<body>
-
-<div class="container">
-    <div class="title">🤖 TradeClaw Premium</div>
-
-    <div class="card">
-        <h2>Account Overview</h2>
-        <div class="stat">Balance: <span id="balance">$0.00</span></div>
-        <div class="stat">Daily PnL: <span id="pnl">$0.00</span></div>
-        <div class="stat">Recent Trade: <span id="recent_trade">N/A</span></div>
-        <div class="stat">Trading Session: <span id="session_status">Loading...</span></div>
-        <div class="message-box">Automated trades, Proven results.</div>
-    </div>
-
-    <div class="card">
-        <h2>TradingView Chart</h2>
-        <div class="chart-select">
-            <input type="text" id="chart_symbol" placeholder="Single Symbol e.g. AAPL" />
-            <select id="chart_interval">
-                <option value="1">1 min</option>
-                <option value="5">5 min</option>
-                <option value="15" selected>15 min</option>
-                <option value="60">1 hr</option>
-                <option value="D">Daily</option>
-            </select>
-            <button onclick="updateChart()">Load Chart</button>
-            <button onclick="toggleMultiView()">Show Multi-View</button>
-            <label>Charts Count:
-                <input type="number" id="multi_count" value="4" min="1" max="10" style="width:60px"/>
-            </label>
-        </div>
-
-        <div id="chart">
-            <iframe id="chart_iframe" 
-                src="https://s.tradingview.com/widgetembed/?frameElementId=tradingview_12345&symbol=NASDAQ%3AAAPL&interval=15&hidesidetoolbar=1&symboledit=1&saveimage=1&toolbarbg=000000&studies=[]&theme=dark&style=1"
-                style="width:100%; height:500px;" allowtransparency="true" frameborder="0"></iframe>
-        </div>
-
-        <div id="multi_chart_container"></div>
-    </div>
-
-    <div class="card">
-        <h2>Current Positions</h2>
-        <div id="positions_box">Loading...</div>
-    </div>
-</div>
-
-<script>
-function generateIframeSrc(symbol){
-    return `https://s.tradingview.com/widgetembed/?frameElementId=tradingview_12345&symbol=NASDAQ%3A${symbol}&interval=15&hidesidetoolbar=1&symboledit=1&saveimage=1&toolbarbg=000000&studies=[]&theme=dark&style=1`;
-}
-
-function updateChart() {
-    const symbol = document.getElementById('chart_symbol').value.toUpperCase() || "AAPL";
-    document.getElementById('chart_iframe').src = generateIframeSrc(symbol);
-}
-
-function toggleMultiView() {
-    const container = document.getElementById('multi_chart_container');
-    if(container.style.display === "none") {
-        container.style.display = "grid";
-        container.style.gridTemplateColumns = "repeat(2, 1fr)";
-        const maxCharts = parseInt(document.getElementById('multi_count').value) || 4;
-
-        const tickers = ["META", "WMT", "HOOD", "RIVN", "AAPL", "PLTR", "NVDA", "TSLA"].slice(0, maxCharts);
-        container.innerHTML = "";
-
-        tickers.forEach(symbol => {
-            const chartDiv = document.createElement("div");
-            chartDiv.style.marginBottom = "10px";
-
-            const input = document.createElement("input");
-            input.type = "text";
-            input.value = symbol;
-            input.style.width = "70%";
-            input.style.marginBottom = "5px";
-
-            const button = document.createElement("button");
-            button.innerText = "Load";
-
-            const iframe = document.createElement("iframe");
-            iframe.style.width = "100%";
-            iframe.style.height = "300px";
-            iframe.allowTransparency = "true";
-            iframe.src = generateIframeSrc(symbol);
-
-            button.onclick = () => { iframe.src = generateIframeSrc(input.value.toUpperCase()); };
-
-            chartDiv.appendChild(input);
-            chartDiv.appendChild(button);
-            chartDiv.appendChild(iframe);
-            container.appendChild(chartDiv);
-        });
-
-    } else { container.style.display = "none"; }
-}
-
-async function fetchData() {
-    try {
-        const res = await fetch('/api/stats');
-        const data = await res.json();
-
-        document.getElementById('balance').innerText = data.balance;
-        const pnlEl = document.getElementById('pnl');
-        pnlEl.style.color = parseFloat(data.pnl.replace('$','')) >= 0 ? "#DA70D6" : "#ff3b3b";
-        pnlEl.innerText = data.pnl;
-
-        document.getElementById('recent_trade').innerText = data.recent_trade;
-        document.getElementById('session_status').innerText = data.session_status;
-
-        const posBox = document.getElementById('positions_box');
-        if(data.positions.length === 0){
-            posBox.innerHTML = "No open positions";
-        } else {
-            posBox.innerHTML = data.positions.map(p => {
-                const color = p.side === "LONG" ? "#00ff00" : "#ff3b3b";
-                return `<span style="color:${color}; font-weight:bold">${p.symbol}: ${p.side} ${p.qty} @ $${p.avg_entry_price} (${p.unrealized_pnl})</span>`;
-            }).join('<br>');
-        }
-
-    } catch (e) { console.error(e); }
-}
-
-fetchData();
-setInterval(fetchData, 3000);
-</script>
-</body>
-</html>
-    """
-    return render_template_string(page)
+    return "TradeClaw Premium Running"
 
 # ----------------------------
-@app.route("/api/stats", methods=["GET"])
-def api_stats():
-    balance_str = "$0.00"
-    pnl_str = "$0.00"
-    recent_trade = "None"
-    session_status = "Unknown"
-    pos_list = []
+def cancel_existing_stops(symbol):
+    open_orders = api.list_orders(status="open", symbols=[symbol])
+    for order in open_orders:
+        if order.type in ["stop", "trailing_stop"]:
+            api.cancel_order(order.id)
 
+# ----------------------------
+def manage_after_partial(symbol, side, original_qty):
     try:
-        clock = api.get_clock()
-        est_now = datetime.now(pytz.timezone("US/Eastern")).strftime("%I:%M:%S %p EST")
-        session_status = f"{'OPEN 🟢' if clock.is_open else 'CLOSED 🔴'} {est_now}"
+        position = api.get_position(symbol)
+        remaining_qty = abs(int(float(position.qty)))
+
+        if remaining_qty < original_qty and remaining_qty > 0:
+
+            cancel_existing_stops(symbol)
+
+            entry_price = float(position.avg_entry_price)
+
+            # Move stop to breakeven
+            if side == "long":
+                api.submit_order(
+                    symbol=symbol,
+                    qty=remaining_qty,
+                    side="sell",
+                    type="stop",
+                    stop_price=round(entry_price, 2),
+                    time_in_force="day"
+                )
+
+                # Add trailing stop
+                api.submit_order(
+                    symbol=symbol,
+                    qty=remaining_qty,
+                    side="sell",
+                    type="trailing_stop",
+                    trail_percent=TRAIL_PERCENT,
+                    time_in_force="day"
+                )
+
+            else:
+                api.submit_order(
+                    symbol=symbol,
+                    qty=remaining_qty,
+                    side="buy",
+                    type="stop",
+                    stop_price=round(entry_price, 2),
+                    time_in_force="day"
+                )
+
+                api.submit_order(
+                    symbol=symbol,
+                    qty=remaining_qty,
+                    side="buy",
+                    type="trailing_stop",
+                    trail_percent=TRAIL_PERCENT,
+                    time_in_force="day"
+                )
+
     except:
         pass
-
-    try:
-        account = api.get_account()
-        balance = float(account.cash) + sum(float(p.market_value) for p in api.list_positions())
-        balance_str = f"${balance:,.2f}"
-        pnl_str = "$0.00"  # Avoid using non-existent daytrade_pl
-
-        trades = api.list_orders(status='all', limit=10)
-        trades.sort(key=lambda x: x.created_at, reverse=True)
-        for t in trades:
-            if float(t.filled_qty) > 0:
-                recent_trade = f"{t.symbol} {t.side.upper()} {t.filled_qty} @ ${t.filled_avg_price if t.filled_avg_price else '0.00'}"
-                break
-
-        positions = api.list_positions()
-        for p in positions:
-            side = "LONG" if float(p.qty) > 0 else "SHORT"
-            qty = abs(float(p.qty))
-            entry = float(p.avg_entry_price)
-            current_price = float(p.current_price)
-            unrealized_pnl = (current_price - entry) * qty if side=="LONG" else (entry - current_price) * qty
-            pos_list.append({
-                "symbol": p.symbol,
-                "qty": qty,
-                "avg_entry_price": entry,
-                "side": side,
-                "unrealized_pnl": f"${unrealized_pnl:,.2f}"
-            })
-
-    except Exception as e: print("Stats error:", e)
-
-    return jsonify({
-        "balance": balance_str,
-        "pnl": pnl_str,
-        "recent_trade": recent_trade,
-        "session_status": session_status,
-        "positions": pos_list
-    })
 
 # ----------------------------
 def execute_order(symbol, qty, side):
     lock = get_lock(symbol)
+
     with lock:
         try:
             current_pos = open_positions.get(symbol, {})
             current_side = current_pos.get("side")
-            entry_price = current_pos.get("entry_price", 0)
-            current_qty = current_pos.get("qty", 0)
 
-            # ------------------------
-            # Handle TP/SL automatically
-            if current_side and entry_price > 0:
-                current_price = float(api.get_last_trade(symbol).price)
-                if current_side == "long":
-                    if current_price >= entry_price * (1 + TP_PERCENT) or current_price <= entry_price * (1 - SL_PERCENT):
-                        api.close_position(symbol)
-                        open_positions.pop(symbol, None)
-                        print(f"Auto-close LONG {symbol} due to TP/SL hit")
-                        time.sleep(2)
-                elif current_side == "short":
-                    if current_price <= entry_price * (1 - TP_PERCENT) or current_price >= entry_price * (1 + SL_PERCENT):
-                        api.close_position(symbol)
-                        open_positions.pop(symbol, None)
-                        print(f"Auto-close SHORT {symbol} due to TP/SL hit")
-                        time.sleep(2)
-
-            # ------------------------
-            # Handle close alerts from webhook
+            # CLOSE ALERTS
             if side in ["close_long", "close_short"]:
-                if current_side and ((side=="close_long" and current_side=="long") or (side=="close_short" and current_side=="short")):
+                try:
                     api.close_position(symbol)
-                    open_positions.pop(symbol, None)
-                    print(f"Closed {symbol} from webhook alert: {side}")
-                    time.sleep(2)  # wait 2 seconds before new order
-                    return {"status":"position_closed"}
-                else:
-                    return {"status":"no_position_to_close"}
+                except:
+                    pass
+                open_positions.pop(symbol, None)
+                return {"status": "position_closed"}
 
-            # ------------------------
-            # Open long/short
+            last_trade = api.get_last_trade(symbol)
+            current_price = float(last_trade.price)
+
+            # ---------------- LONG ----------------
             if side == "long":
-                if current_side == "long":
-                    return {"status":"long_already_open"}
-                elif current_side == "short":
-                    api.close_position(symbol)
-                    open_positions.pop(symbol, None)
-                    time.sleep(2)
-                order = api.submit_order(symbol=symbol, qty=qty, side="buy", type="market", time_in_force="day")
-                open_positions[symbol] = {"side":"long","qty":qty,"entry_price": float(order.filled_avg_price) if order.filled_avg_price else 0}
-                return {"status":"long_opened","order_id":order.id}
 
-            elif side == "short":
                 if current_side == "short":
-                    return {"status":"short_already_open"}
-                elif current_side == "long":
                     api.close_position(symbol)
                     open_positions.pop(symbol, None)
                     time.sleep(2)
-                order = api.submit_order(symbol=symbol, qty=qty, side="sell", type="market", time_in_force="day")
-                open_positions[symbol] = {"side":"short","qty":qty,"entry_price": float(order.filled_avg_price) if order.filled_avg_price else 0}
-                return {"status":"short_opened","order_id":order.id}
+
+                api.submit_order(
+                    symbol=symbol,
+                    qty=qty,
+                    side="buy",
+                    type="market",
+                    time_in_force="day"
+                )
+
+                entry_price = current_price
+
+                tp_price = round(entry_price * (1 + TP_PERCENT), 2)
+                sl_price = round(entry_price * (1 - SL_PERCENT), 2)
+
+                # Partial TP
+                api.submit_order(
+                    symbol=symbol,
+                    qty=TP_PARTIAL_QTY,
+                    side="sell",
+                    type="limit",
+                    time_in_force="day",
+                    limit_price=tp_price
+                )
+
+                # Initial SL
+                api.submit_order(
+                    symbol=symbol,
+                    qty=qty,
+                    side="sell",
+                    type="stop",
+                    time_in_force="day",
+                    stop_price=sl_price
+                )
+
+                open_positions[symbol] = {
+                    "side": "long",
+                    "qty": qty,
+                    "entry_price": entry_price
+                }
+
+                time.sleep(4)
+                manage_after_partial(symbol, "long", qty)
+
+                return {"status": "long_opened"}
+
+            # ---------------- SHORT ----------------
+            elif side == "short":
+
+                if current_side == "long":
+                    api.close_position(symbol)
+                    open_positions.pop(symbol, None)
+                    time.sleep(2)
+
+                api.submit_order(
+                    symbol=symbol,
+                    qty=qty,
+                    side="sell",
+                    type="market",
+                    time_in_force="day"
+                )
+
+                entry_price = current_price
+
+                tp_price = round(entry_price * (1 - TP_PERCENT), 2)
+                sl_price = round(entry_price * (1 + SL_PERCENT), 2)
+
+                api.submit_order(
+                    symbol=symbol,
+                    qty=TP_PARTIAL_QTY,
+                    side="buy",
+                    type="limit",
+                    time_in_force="day",
+                    limit_price=tp_price
+                )
+
+                api.submit_order(
+                    symbol=symbol,
+                    qty=qty,
+                    side="buy",
+                    type="stop",
+                    time_in_force="day",
+                    stop_price=sl_price
+                )
+
+                open_positions[symbol] = {
+                    "side": "short",
+                    "qty": qty,
+                    "entry_price": entry_price
+                }
+
+                time.sleep(4)
+                manage_after_partial(symbol, "short", qty)
+
+                return {"status": "short_opened"}
 
             else:
-                return {"error":f"Invalid side: {side}"}
+                return {"error": f"Invalid side: {side}"}
 
         except Exception as e:
-            print(f"Execution error for {symbol} {side}:", e)
+            print("Execution error:", e)
             return {"error": str(e)}
 
 # ----------------------------
@@ -319,22 +238,25 @@ def webhook():
     try:
         data = request.get_json(force=True)
         symbol = data.get("symbol")
-        qty = int(data.get("qty",1))
-        side = data.get("side","").lower()
+        qty = int(data.get("qty", 1))
+        side = data.get("side", "").lower()
 
-        if not symbol or not side: return jsonify({"error":"Missing symbol or side"}),400
-        if side=="buy": side="long"
-        elif side=="sell": side="short"
+        if not symbol or not side:
+            return jsonify({"error": "Missing symbol or side"}), 400
+
+        if side == "buy":
+            side = "long"
+        elif side == "sell":
+            side = "short"
 
         result = execute_order(symbol, qty, side)
         return jsonify(result)
 
     except Exception as e:
-        print("WEBHOOK ERROR:", e)
-        return jsonify({"error": str(e)}),500
+        return jsonify({"error": str(e)}), 500
 
 # ----------------------------
-if __name__=="__main__":
-    port = int(os.environ.get("PORT",5100))
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5100))
     app.run(host="0.0.0.0", port=port)
 
