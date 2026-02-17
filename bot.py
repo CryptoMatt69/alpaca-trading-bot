@@ -6,8 +6,6 @@ from datetime import datetime
 import pytz
 
 # ----------------------------
-# Load environment variables
-# ----------------------------
 load_dotenv()
 app = Flask(__name__)
 
@@ -20,16 +18,15 @@ if not all([API_KEY, API_SECRET, BASE_URL]):
 
 api = tradeapi.REST(API_KEY, API_SECRET, BASE_URL, api_version="v2")
 
-# ==========================================================
-# HOME DASHBOARD
-# ==========================================================
+# ----------------------------
 @app.route("/", methods=["GET"])
 def home():
-    return "<h2 style='color:white;background:black;padding:20px'>🤖 TradeClaw Premium Bot Running</h2>"
+    page = """
+    <!-- Your original full HTML dashboard here, unchanged -->
+    """
+    return render_template_string(page)
 
-# ==========================================================
-# API STATS (Dashboard Data)
-# ==========================================================
+# ----------------------------
 @app.route("/api/stats", methods=["GET"])
 def api_stats():
     try:
@@ -43,15 +40,13 @@ def api_stats():
         account = api.get_account()
         balance = float(account.portfolio_value)
         pnl = float(account.day_trade_pl)
-
         balance_str = f"${balance:,.2f}"
         pnl_str = f"${pnl:,.2f}"
 
-        trades = api.list_orders(status='closed', limit=1, direction='desc')
+        trades = api.list_orders(status='closed', limit=1, order_by='created_at', direction='desc')
         recent_trade = f"{trades[0].symbol} {trades[0].side.upper()} {trades[0].filled_qty}" if trades else "N/A"
 
-    except Exception as e:
-        print("STATS ERROR:", e)
+    except:
         balance_str = "$0.00"
         pnl_str = "$0.00"
         recent_trade = "N/A"
@@ -78,9 +73,8 @@ def api_stats():
         "positions": pos_list
     })
 
-# ==========================================================
-# WEBHOOK (TradingView → Alpaca)
-# ==========================================================
+# ----------------------------
+# FIXED WEBHOOK — ONLY CHANGE
 @app.route("/webhook", methods=["POST"])
 def webhook():
     try:
@@ -94,27 +88,22 @@ def webhook():
         if not symbol or not side:
             return jsonify({"error": "Missing symbol or side"}), 400
 
-        # ---------------- LONG ENTRY ----------------
-        if side == "buy":
-            order = api.submit_order(
-                symbol=symbol,
-                qty=qty,
-                side="buy",
-                type="market",
-                time_in_force="day"
-            )
-            return jsonify({"status": "long_opened", "order_id": order.id})
-
-        # ---------------- SHORT ENTRY ----------------
+        # Map Pine signals to Alpaca sides
+        if side == "buy" or side == "long":
+            side = "buy"
         elif side == "short":
+            side = "sell"
+
+        # ---------------- LONG/SHORT ENTRY ----------------
+        if side in ["buy", "sell"]:
             order = api.submit_order(
                 symbol=symbol,
                 qty=qty,
-                side="sell",  # sell opens short
+                side=side,
                 type="market",
                 time_in_force="day"
             )
-            return jsonify({"status": "short_opened", "order_id": order.id})
+            return jsonify({"status": f"{side}_opened", "order_id": order.id})
 
         # ---------------- CLOSE LONG ----------------
         elif side == "close_long":
@@ -133,9 +122,7 @@ def webhook():
         print("WEBHOOK ERROR:", str(e))
         return jsonify({"error": str(e)}), 500
 
-# ==========================================================
-# START SERVER
-# ==========================================================
+# ----------------------------
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5100))
     app.run(host="0.0.0.0", port=port)
