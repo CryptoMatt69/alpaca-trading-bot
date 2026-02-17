@@ -1,6 +1,3 @@
-
-
-
 import os
 from flask import Flask, request, jsonify, render_template_string
 import alpaca_trade_api as tradeapi
@@ -32,6 +29,10 @@ def get_lock(symbol):
     if symbol not in locks:
         locks[symbol] = threading.Lock()
     return locks[symbol]
+
+# ----------------------------
+TP_PERCENT = 1.2 / 100  # 1.2% take profit
+SL_PERCENT = 0.6 / 100  # 0.6% stop loss
 
 # ----------------------------
 @app.route("/", methods=["GET"])
@@ -247,36 +248,66 @@ def execute_order(symbol, qty, side):
     lock = get_lock(symbol)
     with lock:
         try:
-            current_pos = open_positions.get(symbol, {}).get("side")
+            current_pos = open_positions.get(symbol, {})
+            current_side = current_pos.get("side")
+            entry_price = current_pos.get("entry_price", 0)
+            current_qty = current_pos.get("qty", 0)
+
+            # ------------------------
+            # Handle TP/SL automatically
+            if current_side and entry_price > 0:
+                current_price = float(api.get_last_trade(symbol).price)
+                if current_side == "long":
+                    if current_price >= entry_price * (1 + TP_PERCENT) or current_price <= entry_price * (1 - SL_PERCENT):
+                        api.close_position(symbol)
+                        open_positions.pop(symbol, None)
+                        print(f"Auto-close LONG {symbol} due to TP/SL hit")
+                        time.sleep(2)
+                elif current_side == "short":
+                    if current_price <= entry_price * (1 - TP_PERCENT) or current_price >= entry_price * (1 + SL_PERCENT):
+                        api.close_position(symbol)
+                        open_positions.pop(symbol, None)
+                        print(f"Auto-close SHORT {symbol} due to TP/SL hit")
+                        time.sleep(2)
+
+            # ------------------------
+            # Handle close alerts from webhook
             if side in ["close_long", "close_short"]:
-                if current_pos and ((side=="close_long" and current_pos=="long") or (side=="close_short" and current_pos=="short")):
+                if current_side and ((side=="close_long" and current_side=="long") or (side=="close_short" and current_side=="short")):
                     api.close_position(symbol)
                     open_positions.pop(symbol, None)
+                    print(f"Closed {symbol} from webhook alert: {side}")
+                    time.sleep(2)  # wait 2 seconds before new order
                     return {"status":"position_closed"}
                 else:
                     return {"status":"no_position_to_close"}
 
-            if side=="long":
-                if current_pos=="long":
+            # ------------------------
+            # Open long/short
+            if side == "long":
+                if current_side == "long":
                     return {"status":"long_already_open"}
-                elif current_pos=="short":
+                elif current_side == "short":
                     api.close_position(symbol)
-                    time.sleep(1)
+                    open_positions.pop(symbol, None)
+                    time.sleep(2)
                 order = api.submit_order(symbol=symbol, qty=qty, side="buy", type="market", time_in_force="day")
                 open_positions[symbol] = {"side":"long","qty":qty,"entry_price": float(order.filled_avg_price) if order.filled_avg_price else 0}
                 return {"status":"long_opened","order_id":order.id}
 
-            elif side=="short":
-                if current_pos=="short":
+            elif side == "short":
+                if current_side == "short":
                     return {"status":"short_already_open"}
-                elif current_pos=="long":
+                elif current_side == "long":
                     api.close_position(symbol)
-                    time.sleep(1)
+                    open_positions.pop(symbol, None)
+                    time.sleep(2)
                 order = api.submit_order(symbol=symbol, qty=qty, side="sell", type="market", time_in_force="day")
                 open_positions[symbol] = {"side":"short","qty":qty,"entry_price": float(order.filled_avg_price) if order.filled_avg_price else 0}
                 return {"status":"short_opened","order_id":order.id}
 
-            else: return {"error":f"Invalid side: {side}"}
+            else:
+                return {"error":f"Invalid side: {side}"}
 
         except Exception as e:
             print(f"Execution error for {symbol} {side}:", e)
@@ -306,3 +337,4 @@ def webhook():
 if __name__=="__main__":
     port = int(os.environ.get("PORT",5100))
     app.run(host="0.0.0.0", port=port)
+
