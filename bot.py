@@ -1,3 +1,6 @@
+
+
+
 import os
 from flask import Flask, request, jsonify, render_template_string
 import alpaca_trade_api as tradeapi
@@ -59,7 +62,7 @@ html, body { background-color: #0d0d0d; color: white; font-family: 'Roboto Mono'
 </head>
 <body>
 <div class="container">
-    <div class="title"><span style="color:#ff2bd6;">🤖</span> TradeClaw Premium</div>
+    <div class="title"><span style="color:#ff2bd6;">&#128640;</span> TradeClaw Premium</div>
     <div class="card">
         <h2>Account Overview</h2>
         <div class="stat">Balance: <span id="balance">$0.00</span></div>
@@ -316,5 +319,3 @@ def execute_order(symbol, qty, side):
 if __name__=="__main__":
     port = int(os.environ.get("PORT",5100))
     app.run(host="0.0.0.0", port=port)
-
-
