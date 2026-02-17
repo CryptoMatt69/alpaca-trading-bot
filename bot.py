@@ -1,5 +1,4 @@
 import os
-from flask import Flask, request, jimport os
 from flask import Flask, request, jsonify, render_template_string
 import alpaca_trade_api as tradeapi
 from dotenv import load_dotenv
@@ -133,7 +132,7 @@ async function fetchData() {
         const data = await res.json();
         document.getElementById('balance').innerText = data.balance;
         const pnlEl = document.getElementById('pnl');
-        pnlEl.style.color = parseFloat(data.pnl.replace('$','')) >= 0 ? "#00ff00" : "#ff3b3b";
+        pnlEl.style.color = parseFloat(data.pnl.replace('$','')) >= 0 ? "#DA70D6" : "#ff3b3b";
         pnlEl.innerText = data.pnl;
         document.getElementById('recent_trade').innerText = data.recent_trade;
         document.getElementById('session_status').innerText = data.session_status;
@@ -167,16 +166,14 @@ def api_stats():
         account = api.get_account()
         balance = float(account.cash) + sum(float(p.market_value) for p in api.list_positions())
         balance_str = f"${balance:,.2f}"
+        pnl_str = "$0.00"
 
-        # ------------------ Live PnL ------------------
-        realized_pnl = 0.0
-        trades = api.list_orders(status='all', limit=50)
+        trades = api.list_orders(status='all', limit=10)
         trades.sort(key=lambda x: x.created_at, reverse=True)
         for t in trades:
-            if t.filled_avg_price and float(t.filled_qty) > 0:
-                if t.side.lower() in ["sell", "buy"]:
-                    realized_pnl += (float(t.filled_qty) * float(t.filled_avg_price)) * (1 if t.side.lower()=="sell" else -1)
-        unrealized_pnl = 0.0
+            if float(t.filled_qty) > 0:
+                recent_trade = f"{t.symbol} {t.side.upper()} {t.filled_qty} @ ${t.filled_avg_price if t.filled_avg_price else '0.00'}"
+                break
 
         positions = api.list_positions()
         for p in positions:
@@ -184,29 +181,15 @@ def api_stats():
             qty = abs(float(p.qty))
             entry = float(p.avg_entry_price)
             current_price = float(p.current_price)
-            upnl = (current_price - entry)*qty if side=="LONG" else (entry - current_price)*qty
-            unrealized_pnl += upnl
-
+            unrealized_pnl = (current_price - entry)*qty if side=="LONG" else (entry - current_price)*qty
             pos_list.append({
                 "symbol": p.symbol,
                 "qty": qty,
                 "avg_entry_price": entry,
                 "side": side,
-                "unrealized_pnl": f"${upnl:,.2f}"
+                "unrealized_pnl": f"${unrealized_pnl:,.2f}"
             })
-
-        total_pnl = realized_pnl + unrealized_pnl
-        pnl_str = f"${total_pnl:,.2f}"
-        # ----------------------------------------------
-
-        # recent trade
-        for t in trades:
-            if float(t.filled_qty) > 0:
-                recent_trade = f"{t.symbol} {t.side.upper()} {t.filled_qty} @ ${t.filled_avg_price if t.filled_avg_price else '0.00'}"
-                break
-
-    except Exception as e: 
-        print("Stats error:", e)
+    except Exception as e: print("Stats error:", e)
 
     return jsonify({
         "balance": balance_str,
@@ -251,7 +234,7 @@ def execute_order(symbol, qty, side):
                     return {"status":"position_closed"}
                 else: return {"status":"no_position_to_close"}
 
-            last_trade = api.get_last_trade(symbol)
+            last_trade = api.get_last_trade(symbol)  # FIXED: replaced get_last_quote
             current_price = float(last_trade.price) if last_trade.price else 0.0
 
             # LONG ENTRY
