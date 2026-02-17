@@ -40,7 +40,7 @@ def home():
     page = """<!DOCTYPE html>
 <html>
 <head>
-<title>TradeClaw Premium</title>
+<title>🤖 TradeClaw Premium Terminal</title>
 <style>
 html, body { background-color: #0d0d0d; color: white; font-family: 'Roboto Mono', monospace; }
 .container { max-width: 1300px; margin: 20px auto; padding: 10px; }
@@ -59,7 +59,7 @@ html, body { background-color: #0d0d0d; color: white; font-family: 'Roboto Mono'
 </head>
 <body>
 <div class="container">
-    <div class="title">🤖 TradeClaw Premium</div>
+    <div class="title">TradeClaw Premium</div>
     <div class="card">
         <h2>Account Overview</h2>
         <div class="stat">Balance: <span id="balance">$0.00</span></div>
@@ -234,8 +234,9 @@ def execute_order(symbol, qty, side):
                     return {"status":"position_closed"}
                 else: return {"status":"no_position_to_close"}
 
-            last_trade = api.get_last_quote(symbol)
-            current_price = float(last_trade.askprice) if last_trade.askprice else 0.0
+            # FIXED: use get_last_trade
+            last_trade = api.get_last_trade(symbol)
+            current_price = float(last_trade.price) if last_trade and hasattr(last_trade, 'price') else 0.0
 
             # LONG ENTRY
             if side=="long":
@@ -319,4 +320,5 @@ def execute_order(symbol, qty, side):
 if __name__=="__main__":
     port = int(os.environ.get("PORT",5100))
     app.run(host="0.0.0.0", port=port)
+
 
