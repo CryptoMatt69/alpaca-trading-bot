@@ -59,7 +59,7 @@ html, body { background-color: #0d0d0d; color: white; font-family: 'Roboto Mono'
 </head>
 <body>
 <div class="container">
-    <div class="title">TradeClaw Premium</div>
+    <div class="title"><span style="color:#ff2bd6;">🤖</span> TradeClaw Premium</div>
     <div class="card">
         <h2>Account Overview</h2>
         <div class="stat">Balance: <span id="balance">$0.00</span></div>
@@ -226,7 +226,6 @@ def execute_order(symbol, qty, side):
             current_entry_price = current_pos.get("entry_price", 0)
             current_qty = current_pos.get("qty", 0)
 
-            # Handle close alerts
             if side in ["close_long","close_short"]:
                 if current_side and ((side=="close_long" and current_side=="long") or (side=="close_short" and current_side=="short")):
                     api.close_position(symbol)
@@ -234,10 +233,9 @@ def execute_order(symbol, qty, side):
                     return {"status":"position_closed"}
                 else: return {"status":"no_position_to_close"}
 
-            last_trade = api.get_last_quote(symbol)  # FIX: use get_last_quote
+            last_trade = api.get_last_quote(symbol)
             current_price = float(last_trade.askprice) if last_trade.askprice else 0.0
 
-            # LONG ENTRY
             if side=="long":
                 if current_side=="long": return {"status":"long_already_open"}
                 elif current_side=="short":
@@ -273,7 +271,6 @@ def execute_order(symbol, qty, side):
                 threading.Thread(target=monitor_tp, daemon=True).start()
                 return {"status":"long_opened","order_id":order.id}
 
-            # SHORT ENTRY
             elif side=="short":
                 if current_side=="short": return {"status":"short_already_open"}
                 elif current_side=="long":
