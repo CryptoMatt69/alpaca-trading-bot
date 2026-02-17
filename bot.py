@@ -101,7 +101,7 @@ body {
     margin-bottom: 10px;
 }
 
-.chart-select input {
+.chart-select input, .chart-select select {
     padding: 5px 10px;
     border-radius: 8px;
     border: none;
@@ -121,6 +121,11 @@ body {
 .chart-select button:hover {
     background: #ff7f50;
 }
+
+#multi_chart_container iframe {
+    border-radius: 10px;
+    box-shadow: 0 0 20px rgba(255,43,214,0.4);
+}
 </style>
 </head>
 <body>
@@ -130,6 +135,7 @@ body {
 
     <div class="card">
         <h2>Account Overview</h2>
+        <div class="stat">Balance: <span id="balance">$0.00</span></div>
         <div class="stat">PnL: <span id="pnl">$0.00</span></div>
         <div class="stat">Recent Trade: <span id="recent_trade">N/A</span></div>
         <div class="stat">Trading Session: <span id="session_status">Loading...</span></div>
@@ -139,21 +145,25 @@ body {
     <div class="card">
         <h2>TradingView Chart</h2>
         <div class="chart-select">
-            <input type="text" id="chart_symbol" placeholder="Symbol e.g. AAPL" />
+            <input type="text" id="chart_symbol" placeholder="Single Symbol e.g. AAPL" />
             <select id="chart_interval">
                 <option value="1">1 min</option>
-                <option value="5" selected>5 min</option>
-                <option value="15">15 min</option>
+                <option value="5">5 min</option>
+                <option value="15" selected>15 min</option>
                 <option value="60">1 hr</option>
                 <option value="D">Daily</option>
             </select>
             <button onclick="updateChart()">Load Chart</button>
+            <button onclick="toggleMultiView()">Show Multi-View</button>
         </div>
+
         <div id="chart">
             <iframe id="chart_iframe" 
-                src="https://s.tradingview.com/widgetembed/?frameElementId=tradingview_12345&symbol=NASDAQ%3AAAPL&interval=5&hidesidetoolbar=1&symboledit=1&saveimage=1&toolbarbg=000000&studies=[]&theme=dark&style=1&timezone=Etc%2FUTC&studies_overrides={'mainSeriesProperties.candleStyle.upColor':'#DA70D6','mainSeriesProperties.candleStyle.downColor':'#000000','mainSeriesProperties.candleStyle.wickUpColor':'#DA70D6','mainSeriesProperties.candleStyle.wickDownColor':'#000000','mainSeriesProperties.candleStyle.borderUpColor':'#DA70D6','mainSeriesProperties.candleStyle.borderDownColor':'#000000','paneProperties.background':'#000000'}"
+                src="https://s.tradingview.com/widgetembed/?frameElementId=tradingview_12345&symbol=NASDAQ%3AAAPL&interval=15&hidesidetoolbar=1&symboledit=1&saveimage=1&toolbarbg=000000&studies=[]&theme=dark&style=1&timezone=Etc%2FUTC&studies_overrides={'mainSeriesProperties.candleStyle.upColor':'#DA70D6','mainSeriesProperties.candleStyle.downColor':'#000000','mainSeriesProperties.candleStyle.wickUpColor':'#DA70D6','mainSeriesProperties.candleStyle.wickDownColor':'#000000','mainSeriesProperties.candleStyle.borderUpColor':'#DA70D6','mainSeriesProperties.candleStyle.borderDownColor':'#000000','paneProperties.background':'#000000'}"
                 style="width:100%; height:100%;" allowtransparency="true" frameborder="0"></iframe>
         </div>
+
+        <div id="multi_chart_container" style="display:none; margin-top:15px;"></div>
     </div>
 
     <div class="card">
@@ -171,19 +181,47 @@ function updateChart() {
     iframe.src = `https://s.tradingview.com/widgetembed/?frameElementId=tradingview_12345&symbol=NASDAQ%3A${symbol}&interval=${interval}&hidesidetoolbar=1&symboledit=1&saveimage=1&toolbarbg=000000&studies=[]&theme=dark&style=1&timezone=Etc%2FUTC&studies_overrides={'mainSeriesProperties.candleStyle.upColor':'#DA70D6','mainSeriesProperties.candleStyle.downColor':'#000000','mainSeriesProperties.candleStyle.wickUpColor':'#DA70D6','mainSeriesProperties.candleStyle.wickDownColor':'#000000','mainSeriesProperties.candleStyle.borderUpColor':'#DA70D6','mainSeriesProperties.candleStyle.borderDownColor':'#000000','paneProperties.background':'#000000'}`;
 }
 
+// ------------------- Multi-View -------------------
+function toggleMultiView() {
+    const container = document.getElementById('multi_chart_container');
+    if(container.style.display === "none") {
+        container.style.display = "grid";
+        container.style.gridTemplateColumns = "repeat(2, 1fr)";
+        container.style.gap = "10px";
+        const tickers = ["WMT","TSLA","NVDA","QQQ","SPY","UNH","PLTR","AAPL","RIVN","HOOD"];
+        container.innerHTML = "";
+        tickers.forEach(symbol => {
+            const iframe = document.createElement("iframe");
+            iframe.style.width = "100%";
+            iframe.style.height = "300px";
+            iframe.allowTransparency = "true";
+            iframe.src = `https://s.tradingview.com/widgetembed/?frameElementId=tradingview_12345&symbol=NASDAQ%3A${symbol}&interval=15&hidesidetoolbar=1&symboledit=1&saveimage=1&toolbarbg=000000&studies=[]&theme=dark&style=1&timezone=Etc%2FUTC&studies_overrides={'mainSeriesProperties.candleStyle.upColor':'#DA70D6','mainSeriesProperties.candleStyle.downColor':'#000000','mainSeriesProperties.candleStyle.wickUpColor':'#DA70D6','mainSeriesProperties.candleStyle.wickDownColor':'#000000','mainSeriesProperties.candleStyle.borderUpColor':'#DA70D6','mainSeriesProperties.candleStyle.borderDownColor':'#000000','paneProperties.background':'#000000'}`;
+            container.appendChild(iframe);
+        });
+    } else {
+        container.style.display = "none";
+    }
+}
+
 // ------------------- Live Stats -------------------
 let lastPnl = 0;
+let lastBalance = 0;
 
 async function fetchData() {
     try {
         const res = await fetch('/api/stats');
         const data = await res.json();
 
+        // Animate Balance
+        const balanceEl = document.getElementById('balance');
+        const balanceValue = parseFloat(data.balance.replace('$','').replace(',','')) || 0;
+        animateNumber(balanceEl, lastBalance, balanceValue);
+        lastBalance = balanceValue;
+
         // Animate PnL
         const pnlEl = document.getElementById('pnl');
         const pnlValue = parseFloat(data.pnl.replace('$','').replace(',','')) || 0;
-        const color = pnlValue >= 0 ? "#DA70D6" : "#ff3b3b";
-        pnlEl.style.color = color;
+        pnlEl.style.color = pnlValue >= 0 ? "#DA70D6" : "#ff3b3b";
         animateNumber(pnlEl, lastPnl, pnlValue);
         lastPnl = pnlValue;
 
@@ -204,7 +242,6 @@ async function fetchData() {
     }
 }
 
-// ------------------- Animate Numbers -------------------
 function animateNumber(element, start, end) {
     const duration = 500;
     const range = end - start;
@@ -238,10 +275,12 @@ def api_stats():
 
     try:
         account = api.get_account()
+        balance = f"${float(account.cash):,.2f}"
         pnl = f"${float(account.equity) - float(account.cash):,.2f}"
         trades = api.list_orders(status='closed', limit=1, order_by='created_at', direction='desc')
         recent_trade = f"{trades[0].symbol} {trades[0].side.upper()} {trades[0].filled_qty}" if trades else "N/A"
     except:
+        balance = "$0.00"
         pnl = "$0.00"
         recent_trade = "N/A"
 
@@ -260,6 +299,7 @@ def api_stats():
         pos_list = []
 
     return jsonify({
+        "balance": balance,
         "pnl": pnl,
         "recent_trade": recent_trade,
         "session_status": session_status,
@@ -306,3 +346,4 @@ def webhook():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5100))
     app.run(host="0.0.0.0", port=port)
+
