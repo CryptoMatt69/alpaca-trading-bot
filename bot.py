@@ -27,26 +27,19 @@ def home():
 <head>
 <title>TradeClaw Premium Terminal</title>
 <style>
-html, body { background-color: #0d0d0d; color: white; font-family: 'Roboto Mono', monospace; margin:0; padding:0; }
+html, body { background-color: #0d0d0d; color: white; font-family: 'Roboto Mono', monospace; }
 .container { max-width: 1300px; margin: 20px auto; padding: 10px; }
 .title { font-size: 60px; font-weight: 900; text-align: center; background: linear-gradient(90deg, #ff2bd6, #ff7f50); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 30px; }
 .card { background: rgba(0,0,0,0.85); border-radius: 15px; padding: 20px; margin-bottom: 20px; box-shadow: 0 0 40px rgba(255, 43, 214, 0.5); }
 .card h2 { margin-top: 0; font-size: 24px; color: #ff2bd6; }
 .stat { font-size: 18px; margin: 5px 0; }
-.chart-select { display: flex; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
-.chart-select input, .chart-select select, .chart-select button { padding: 5px 10px; border-radius: 8px; border: none; font-size: 16px; }
-.chart-select button { background: #ff2bd6; color: #fff; cursor: pointer; font-weight: bold; transition: 0.2s; }
+.chart-select { display: flex; gap: 10px; margin-bottom: 10px; }
+.chart-select input, .chart-select select { padding: 5px 10px; border-radius: 8px; border: none; font-size: 16px; }
+.chart-select button { padding: 5px 12px; border-radius: 8px; border: none; background: #ff2bd6; color: #fff; cursor: pointer; font-weight: bold; transition: 0.2s; }
 .chart-select button:hover { background: #ff7f50; }
 .message-box { text-align: center; font-size: 20px; color: #00ff00; text-shadow: 0 0 10px #00ff00; margin-top: 10px; }
 #chart { width: 100%; height: 500px; border-radius: 15px; overflow: hidden; box-shadow: 0 0 40px rgba(255, 43, 214, 0.5); margin-bottom: 20px; }
-#multi_chart_container { display: none; margin-top: 20px; gap: 10px; grid-auto-rows: minmax(300px, auto); }
-.suggestions-box { background: #111; border: 1px solid #ff2bd6; border-radius: 5px; margin-top: 2px; max-height: 150px; overflow-y: auto; position: absolute; width: calc(100% - 2px); z-index: 1000; }
-.suggestion-item { padding: 5px 10px; cursor: pointer; }
-.suggestion-item:hover { background: #ff2bd6; color: #000; }
-/* Responsive multi-chart */
-@media (max-width: 900px) { #multi_chart_container { grid-template-columns: repeat(1, 1fr); } }
-@media (min-width: 901px) and (max-width: 1200px) { #multi_chart_container { grid-template-columns: repeat(2, 1fr); } }
-@media (min-width: 1201px) { #multi_chart_container { grid-template-columns: repeat(3, 1fr); } }
+#multi_chart_container { display: none; margin-top: 20px; gap: 10px; }
 </style>
 </head>
 <body>
@@ -54,7 +47,6 @@ html, body { background-color: #0d0d0d; color: white; font-family: 'Roboto Mono'
 <div class="container">
     <div class="title">🤖 TradeClaw Premium</div>
 
-    <!-- Account Overview -->
     <div class="card">
         <h2>Account Overview</h2>
         <div class="stat">Balance: <span id="balance">$0.00</span></div>
@@ -64,7 +56,6 @@ html, body { background-color: #0d0d0d; color: white; font-family: 'Roboto Mono'
         <div class="message-box">Automated trades, Proven results.</div>
     </div>
 
-    <!-- Main Chart -->
     <div class="card">
         <h2>TradingView Chart</h2>
         <div class="chart-select">
@@ -78,7 +69,7 @@ html, body { background-color: #0d0d0d; color: white; font-family: 'Roboto Mono'
             </select>
             <button onclick="updateChart()">Load Chart</button>
             <button onclick="toggleMultiView()">Show Multi-View</button>
-            <input type="number" id="num_charts" value="4" min="1" max="10" style="width:60px;" title="Number of charts for multi-view"/>
+            <input type="number" id="multi_count" value="8" min="1" max="10" style="width:70px;" />
         </div>
 
         <div id="chart">
@@ -90,7 +81,6 @@ html, body { background-color: #0d0d0d; color: white; font-family: 'Roboto Mono'
         <div id="multi_chart_container"></div>
     </div>
 
-    <!-- Positions -->
     <div class="card">
         <h2>Current Positions</h2>
         <div id="positions_box">Loading...</div>
@@ -101,7 +91,7 @@ html, body { background-color: #0d0d0d; color: white; font-family: 'Roboto Mono'
 let lastPnl = 0;
 let lastBalance = 0;
 
-// ----------------- Chart -----------------
+// ------------------- Chart Functions -------------------
 function generateIframeSrc(symbol){
     return `https://s.tradingview.com/widgetembed/?frameElementId=tradingview_12345&symbol=NASDAQ%3A${symbol}&interval=15&hidesidetoolbar=1&symboledit=1&saveimage=1&toolbarbg=000000&studies=[]&theme=dark&style=1&timezone=Etc%2FUTC&studies_overrides={'mainSeriesProperties.candleStyle.upColor':'#DA70D6','mainSeriesProperties.candleStyle.downColor':'#000000','mainSeriesProperties.candleStyle.wickUpColor':'#DA70D6','mainSeriesProperties.candleStyle.wickDownColor':'#000000','mainSeriesProperties.candleStyle.borderUpColor':'#DA70D6','mainSeriesProperties.candleStyle.borderDownColor':'#000000','paneProperties.background':'#000000'}`;
 }
@@ -111,20 +101,20 @@ function updateChart() {
     document.getElementById('chart_iframe').src = generateIframeSrc(symbol);
 }
 
-// ---------------- Multi-View ----------------
+// ------------------- Multi-View -------------------
 function toggleMultiView() {
     const container = document.getElementById('multi_chart_container');
-    const numCharts = parseInt(document.getElementById('num_charts').value) || 4;
+    const count = parseInt(document.getElementById('multi_count').value) || 8;
+
+    const defaultTickers = ["META","WMT","HOOD","RIVN","AAPL","PLTR","NVDA","TSLA"].slice(0, count);
 
     if(container.style.display === "none") {
         container.style.display = "grid";
+        container.style.gridTemplateColumns = "repeat(2, 1fr)";
         container.innerHTML = "";
-
-        const defaultTickers = ["WMT","TSLA","NVDA","QQQ","SPY","UNH","PLTR","AAPL","RIVN","HOOD"].slice(0,numCharts);
 
         defaultTickers.forEach(symbol => {
             const chartDiv = document.createElement("div");
-            chartDiv.style.position = "relative";
             chartDiv.style.marginBottom = "10px";
 
             const input = document.createElement("input");
@@ -132,27 +122,6 @@ function toggleMultiView() {
             input.value = symbol;
             input.style.width = "70%";
             input.style.marginBottom = "5px";
-
-            const sugBox = document.createElement("div");
-            sugBox.className = "suggestions-box";
-            chartDiv.appendChild(sugBox);
-
-            input.addEventListener("input", async () => {
-                const query = input.value.trim();
-                if(!query){ sugBox.innerHTML=""; return; }
-                try {
-                    const res = await fetch(`https://symbol-search.tradingview.com/symbol_search/?text=${query}&exchange=&type=&hl=1`);
-                    const data = await res.json();
-                    sugBox.innerHTML="";
-                    data.slice(0,5).forEach(item=>{
-                        const div = document.createElement("div");
-                        div.className="suggestion-item";
-                        div.innerText = `${item.symbol} (${item.description})`;
-                        div.onclick = ()=>{ input.value = item.symbol; sugBox.innerHTML=""; iframe.src=generateIframeSrc(item.symbol); };
-                        sugBox.appendChild(div);
-                    });
-                } catch(e){ console.error(e); }
-            });
 
             const button = document.createElement("button");
             button.innerText = "Load";
@@ -163,7 +132,9 @@ function toggleMultiView() {
             iframe.allowTransparency = "true";
             iframe.src = generateIframeSrc(symbol);
 
-            button.onclick = ()=>{ iframe.src = generateIframeSrc(input.value.toUpperCase()); };
+            button.onclick = () => {
+                iframe.src = generateIframeSrc(input.value.toUpperCase());
+            };
 
             chartDiv.appendChild(input);
             chartDiv.appendChild(button);
@@ -176,17 +147,19 @@ function toggleMultiView() {
     }
 }
 
-// ---------------- Live Stats ----------------
+// ------------------- Live Stats -------------------
 async function fetchData() {
     try {
         const res = await fetch('/api/stats');
         const data = await res.json();
 
+        // Animate Balance
         const balanceEl = document.getElementById('balance');
         const balanceValue = parseFloat(data.balance.replace('$','').replace(',','')) || 0;
         animateNumber(balanceEl, lastBalance, balanceValue);
         lastBalance = balanceValue;
 
+        // Animate PnL
         const pnlEl = document.getElementById('pnl');
         const pnlValue = parseFloat(data.pnl.replace('$','').replace(',','')) || 0;
         pnlEl.style.color = pnlValue >= 0 ? "#DA70D6" : "#ff3b3b";
@@ -205,17 +178,19 @@ async function fetchData() {
                 return `<span style="color:${color}; font-weight:bold">${p.symbol}: ${p.side} ${p.qty} @ $${p.avg_entry_price}</span>`;
             }).join('<br>');
         }
-    } catch(e){ console.error(e); }
+    } catch (e) {
+        console.error(e);
+    }
 }
 
 function animateNumber(element, start, end) {
     const duration = 500;
     const range = end - start;
     const startTime = performance.now();
-    function step(currentTime){
+    function step(currentTime) {
         const progress = Math.min((currentTime - startTime)/duration,1);
-        element.innerText = "$"+(start + range*progress).toFixed(2);
-        if(progress<1) requestAnimationFrame(step);
+        element.innerText = "$" + (start + range * progress).toFixed(2);
+        if(progress < 1) requestAnimationFrame(step);
     }
     requestAnimationFrame(step);
 }
@@ -240,8 +215,8 @@ def api_stats():
 
     try:
         account = api.get_account()
-        balance = float(account.equity)
-        pnl = float(account.equity) - float(account.cash)
+        balance = float(account.cash)       # cash as balance
+        pnl = float(account.daily_change)   # daily change as PnL
         balance_str = f"${balance:,.2f}"
         pnl_str = f"${pnl:,.2f}"
 
