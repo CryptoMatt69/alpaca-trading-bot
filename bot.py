@@ -19,9 +19,12 @@ if not all([API_KEY, API_SECRET, BASE_URL]):
 api = tradeapi.REST(API_KEY, API_SECRET, BASE_URL, api_version="v2")
 
 # ----------------------------
+# Track open positions to prevent instant flip
+open_positions = {}  # key: symbol, value: 'long' or 'short'
+
+# ----------------------------
 @app.route("/", methods=["GET"])
 def home():
-    # Paste your full original HTML dashboard here (same content you had before)
     page = """
     <!DOCTYPE html>
     <html>
@@ -91,7 +94,7 @@ def home():
     </div>
 
     <script>
-    // (Your dashboard JS remains unchanged)
+    // Your original dashboard JS here (unchanged)
     </script>
     </body>
     </html>
@@ -159,31 +162,50 @@ def webhook():
         if not symbol or not side:
             return jsonify({"error": "Missing symbol or side"}), 400
 
-        # Normalize side values
+        # Normalize signals
         if side == "long":
             side = "buy"
-        if side == "short":
+        elif side == "short":
             side = "sell"
 
-        # LONG or SHORT entries
-        if side in ["buy", "sell"]:
+        # ---------------- LONG ENTRY ----------------
+        if side == "buy":
+            if open_positions.get(symbol) == "long":
+                return jsonify({"status": "long_already_open"})
             order = api.submit_order(
                 symbol=symbol,
                 qty=qty,
-                side=side,
+                side="buy",
                 type="market",
                 time_in_force="day"
             )
-            return jsonify({"status": f"{side}_opened", "order_id": order.id})
+            open_positions[symbol] = "long"
+            return jsonify({"status": "long_opened", "order_id": order.id})
 
-        # CLOSE LONG
+        # ---------------- SHORT ENTRY ----------------
+        elif side == "sell":
+            if open_positions.get(symbol) == "short":
+                return jsonify({"status": "short_already_open"})
+            order = api.submit_order(
+                symbol=symbol,
+                qty=qty,
+                side="sell",
+                type="market",
+                time_in_force="day"
+            )
+            open_positions[symbol] = "short"
+            return jsonify({"status": "short_opened", "order_id": order.id})
+
+        # ---------------- CLOSE LONG ----------------
         elif side == "close_long":
             api.close_position(symbol)
+            open_positions.pop(symbol, None)
             return jsonify({"status": "long_closed"})
 
-        # CLOSE SHORT
+        # ---------------- CLOSE SHORT ----------------
         elif side == "close_short":
             api.close_position(symbol)
+            open_positions.pop(symbol, None)
             return jsonify({"status": "short_closed"})
 
         else:
@@ -197,6 +219,7 @@ def webhook():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5100))
     app.run(host="0.0.0.0", port=port)
+
 
 
 
