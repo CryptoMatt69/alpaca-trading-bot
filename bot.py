@@ -217,7 +217,9 @@ def execute_order(symbol, qty, side):
                     return {"status":"position_closed"}
                 else: return {"status":"no_position_to_close"}
 
-            last_trade = api.get_last_trade(symbol)
+            # ------------------------
+            # FIXED v2 get_latest_trade
+            last_trade = api.get_latest_trade(symbol)
             current_price = float(last_trade.price)
 
             # ------------------------
@@ -227,16 +229,18 @@ def execute_order(symbol, qty, side):
                 elif current_side=="short":
                     api.close_position(symbol)
                     open_positions.pop(symbol, None)
-                    time.sleep(2)  # wait 2s before new order
+                    time.sleep(2)
 
-                order = api.submit_order(symbol=symbol, qty=qty, side="buy", type="limit", limit_price=current_price, time_in_force="day", extended_hours=True)
-                entry_price = float(order.filled_avg_price) if order.filled_avg_price else current_price
+                order = api.submit_order(symbol=symbol, qty=qty, side="buy", type="limit", time_in_force="day", limit_price=current_price)
+                entry_price = current_price
 
+                # Partial TP 3 shares
                 tp_price = round(entry_price*(1+TP_PERCENT),2)
-                api.submit_order(symbol=symbol, qty=3, side="sell", type="limit", time_in_force="day", limit_price=tp_price, extended_hours=True)
+                api.submit_order(symbol=symbol, qty=3, side="sell", type="limit", time_in_force="day", limit_price=tp_price)
 
+                # Stop for all shares
                 sl_price = round(entry_price*(1-SL_PERCENT),2)
-                stop_order = api.submit_order(symbol=symbol, qty=qty, side="sell", type="stop", time_in_force="day", stop_price=sl_price, extended_hours=True)
+                stop_order = api.submit_order(symbol=symbol, qty=qty, side="sell", type="stop", time_in_force="day", stop_price=sl_price)
 
                 open_positions[symbol] = {"side":"long","qty":qty,"entry_price":entry_price,"stop_order_id":stop_order.id,"tp_qty":3}
 
@@ -250,7 +254,7 @@ def execute_order(symbol, qty, side):
                                 if remaining_qty>0:
                                     try: api.cancel_order(stop_order.id)
                                     except: pass
-                                    api.submit_order(symbol=symbol, qty=remaining_qty, side="sell", type="stop", time_in_force="day", stop_price=entry_price, extended_hours=True)
+                                    api.submit_order(symbol=symbol, qty=remaining_qty, side="sell", type="stop", time_in_force="day", stop_price=entry_price)
                                 break
                         except: pass
                         time.sleep(1)
@@ -264,16 +268,18 @@ def execute_order(symbol, qty, side):
                 elif current_side=="long":
                     api.close_position(symbol)
                     open_positions.pop(symbol, None)
-                    time.sleep(2)  # wait 2s before new order
+                    time.sleep(2)
 
-                order = api.submit_order(symbol=symbol, qty=qty, side="sell", type="limit", limit_price=current_price, time_in_force="day", extended_hours=True)
-                entry_price = float(order.filled_avg_price) if order.filled_avg_price else current_price
+                order = api.submit_order(symbol=symbol, qty=qty, side="sell", type="limit", time_in_force="day", limit_price=current_price)
+                entry_price = current_price
 
+                # Partial TP 3 shares
                 tp_price = round(entry_price*(1-TP_PERCENT),2)
-                api.submit_order(symbol=symbol, qty=3, side="buy", type="limit", time_in_force="day", limit_price=tp_price, extended_hours=True)
+                api.submit_order(symbol=symbol, qty=3, side="buy", type="limit", time_in_force="day", limit_price=tp_price)
 
+                # Stop for all shares
                 sl_price = round(entry_price*(1+SL_PERCENT),2)
-                stop_order = api.submit_order(symbol=symbol, qty=qty, side="buy", type="stop", time_in_force="day", stop_price=sl_price, extended_hours=True)
+                stop_order = api.submit_order(symbol=symbol, qty=qty, side="buy", type="stop", time_in_force="day", stop_price=sl_price)
 
                 open_positions[symbol] = {"side":"short","qty":qty,"entry_price":entry_price,"stop_order_id":stop_order.id,"tp_qty":3}
 
@@ -287,7 +293,7 @@ def execute_order(symbol, qty, side):
                                 if remaining_qty>0:
                                     try: api.cancel_order(stop_order.id)
                                     except: pass
-                                    api.submit_order(symbol=symbol, qty=remaining_qty, side="buy", type="stop", time_in_force="day", stop_price=entry_price, extended_hours=True)
+                                    api.submit_order(symbol=symbol, qty=remaining_qty, side="buy", type="stop", time_in_force="day", stop_price=entry_price)
                                 break
                         except: pass
                         time.sleep(1)
