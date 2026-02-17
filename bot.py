@@ -27,104 +27,20 @@ def home():
 <head>
 <title>TradeClaw Premium Terminal</title>
 <style>
-/* -------------------- CSS -------------------- */
-@import url('https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap');
-
-body {
-    margin: 0;
-    font-family: 'Roboto Mono', monospace;
-    background: linear-gradient(to right, #0f0c29, #302b63, #24243e);
-    color: #fff;
-    overflow-x: hidden;
-}
-
-.container {
-    max-width: 1300px;
-    margin: 20px auto;
-    padding: 10px;
-}
-
-.title {
-    font-size: 60px;
-    font-weight: 900;
-    text-align: center;
-    background: linear-gradient(90deg, #ff2bd6, #ff7f50);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    margin-bottom: 30px;
-}
-
-.card {
-    background: rgba(0,0,0,0.85);
-    border-radius: 15px;
-    padding: 20px;
-    margin-bottom: 20px;
-    box-shadow: 0 0 40px rgba(255, 43, 214, 0.5);
-    transition: transform 0.2s;
-}
-
-.card:hover {
-    transform: scale(1.01);
-}
-
-.card h2 {
-    margin-top: 0;
-    font-size: 24px;
-    color: #ff2bd6;
-}
-
-.stat {
-    font-size: 18px;
-    margin: 5px 0;
-    transition: all 0.5s ease;
-}
-
-#chart, #multi_chart_container {
-    width: 100%;
-    border-radius: 15px;
-    overflow: hidden;
-    box-shadow: 0 0 40px rgba(255, 43, 214, 0.5);
-    margin-bottom: 20px;
-}
-
-.message-box {
-    text-align: center;
-    font-size: 20px;
-    color: #00ff00;
-    text-shadow: 0 0 10px #00ff00;
-    margin-top: 10px;
-}
-
-.chart-select {
-    display: flex;
-    gap: 10px;
-    margin-bottom: 10px;
-}
-
-.chart-select input {
-    padding: 5px 10px;
-    border-radius: 8px;
-    border: none;
-    font-size: 16px;
-}
-
-.chart-select select, .chart-select button {
-    padding: 5px 12px;
-    border-radius: 8px;
-    border: none;
-    font-weight: bold;
-    cursor: pointer;
-    transition: 0.2s;
-}
-
-.chart-select button {
-    background: #ff2bd6;
-    color: #fff;
-}
-
-.chart-select button:hover {
-    background: #ff7f50;
-}
+html, body { background-color: #0d0d0d; color: white; font-family: 'Roboto Mono', monospace; }
+.container { max-width: 1300px; margin: 20px auto; padding: 10px; }
+.title { font-size: 60px; font-weight: 900; text-align: center; background: linear-gradient(90deg, #ff2bd6, #ff7f50); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 30px; }
+.card { background: rgba(0,0,0,0.85); border-radius: 15px; padding: 20px; margin-bottom: 20px; box-shadow: 0 0 40px rgba(255, 43, 214, 0.5); }
+.card h2 { margin-top: 0; font-size: 24px; color: #ff2bd6; }
+.stat { font-size: 18px; margin: 5px 0; }
+.chart-select { display: flex; gap: 10px; margin-bottom: 10px; }
+.chart-select input { padding: 5px 10px; border-radius: 8px; border: none; font-size: 16px; }
+.chart-select select { padding: 5px 10px; border-radius: 8px; border: none; font-size: 16px; }
+.chart-select button { padding: 5px 12px; border-radius: 8px; border: none; background: #ff2bd6; color: #fff; cursor: pointer; font-weight: bold; transition: 0.2s; }
+.chart-select button:hover { background: #ff7f50; }
+.message-box { text-align: center; font-size: 20px; color: #00ff00; text-shadow: 0 0 10px #00ff00; margin-top: 10px; }
+#chart { width: 100%; height: 500px; border-radius: 15px; overflow: hidden; box-shadow: 0 0 40px rgba(255, 43, 214, 0.5); margin-bottom: 20px; }
+#multi_chart_container { display: none; margin-top: 20px; gap: 10px; }
 </style>
 </head>
 <body>
@@ -132,7 +48,6 @@ body {
 <div class="container">
     <div class="title">🤖 TradeClaw Premium</div>
 
-    <!-- Account Overview -->
     <div class="card">
         <h2>Account Overview</h2>
         <div class="stat">Balance: <span id="balance">$0.00</span></div>
@@ -142,7 +57,6 @@ body {
         <div class="message-box">Automated trades, Proven results.</div>
     </div>
 
-    <!-- Single Chart -->
     <div class="card">
         <h2>TradingView Chart</h2>
         <div class="chart-select">
@@ -164,10 +78,9 @@ body {
                 style="width:100%; height:100%;" allowtransparency="true" frameborder="0"></iframe>
         </div>
 
-        <div id="multi_chart_container" style="display:none; margin-top:15px;"></div>
+        <div id="multi_chart_container"></div>
     </div>
 
-    <!-- Current Positions -->
     <div class="card">
         <h2>Current Positions</h2>
         <div id="positions_box">Loading...</div>
@@ -178,11 +91,14 @@ body {
 let lastPnl = 0;
 let lastBalance = 0;
 
-// ------------------- Single Chart -------------------
+// ------------------- Chart Functions -------------------
+function generateIframeSrc(symbol){
+    return `https://s.tradingview.com/widgetembed/?frameElementId=tradingview_12345&symbol=NASDAQ%3A${symbol}&interval=15&hidesidetoolbar=1&symboledit=1&saveimage=1&toolbarbg=000000&studies=[]&theme=dark&style=1&timezone=Etc%2FUTC&studies_overrides={'mainSeriesProperties.candleStyle.upColor':'#DA70D6','mainSeriesProperties.candleStyle.downColor':'#000000','mainSeriesProperties.candleStyle.wickUpColor':'#DA70D6','mainSeriesProperties.candleStyle.wickDownColor':'#000000','mainSeriesProperties.candleStyle.borderUpColor':'#DA70D6','mainSeriesProperties.candleStyle.borderDownColor':'#000000','paneProperties.background':'#000000'}`;
+}
+
 function updateChart() {
     const symbol = document.getElementById('chart_symbol').value.toUpperCase() || "AAPL";
-    const interval = document.getElementById('chart_interval').value;
-    document.getElementById('chart_iframe').src = generateIframeSrc(symbol, interval);
+    document.getElementById('chart_iframe').src = generateIframeSrc(symbol);
 }
 
 // ------------------- Multi-View -------------------
@@ -191,7 +107,6 @@ function toggleMultiView() {
     if(container.style.display === "none") {
         container.style.display = "grid";
         container.style.gridTemplateColumns = "repeat(2, 1fr)";
-        container.style.gap = "10px";
 
         const tickers = ["WMT","TSLA","NVDA","QQQ","SPY","UNH","PLTR","AAPL","RIVN","HOOD"];
         container.innerHTML = "";
@@ -203,20 +118,20 @@ function toggleMultiView() {
             const input = document.createElement("input");
             input.type = "text";
             input.value = symbol;
-            input.style.width = "80%";
+            input.style.width = "70%";
             input.style.marginBottom = "5px";
 
             const button = document.createElement("button");
             button.innerText = "Load";
-            button.onclick = () => {
-                iframe.src = generateIframeSrc(input.value, 15);
-            };
-
             const iframe = document.createElement("iframe");
             iframe.style.width = "100%";
             iframe.style.height = "300px";
             iframe.allowTransparency = "true";
-            iframe.src = generateIframeSrc(symbol, 15);
+            iframe.src = generateIframeSrc(symbol);
+
+            button.onclick = () => {
+                iframe.src = generateIframeSrc(input.value.toUpperCase());
+            };
 
             chartDiv.appendChild(input);
             chartDiv.appendChild(button);
@@ -227,10 +142,6 @@ function toggleMultiView() {
     } else {
         container.style.display = "none";
     }
-}
-
-function generateIframeSrc(symbol, interval){
-    return `https://s.tradingview.com/widgetembed/?frameElementId=tradingview_12345&symbol=NASDAQ%3A${symbol}&interval=${interval}&hidesidetoolbar=1&symboledit=1&saveimage=1&toolbarbg=000000&studies=[]&theme=dark&style=1&timezone=Etc%2FUTC&studies_overrides={'mainSeriesProperties.candleStyle.upColor':'#DA70D6','mainSeriesProperties.candleStyle.downColor':'#000000','mainSeriesProperties.candleStyle.wickUpColor':'#DA70D6','mainSeriesProperties.candleStyle.wickDownColor':'#000000','mainSeriesProperties.candleStyle.borderUpColor':'#DA70D6','mainSeriesProperties.candleStyle.borderDownColor':'#000000','paneProperties.background':'#000000'}`;
 }
 
 // ------------------- Live Stats -------------------
@@ -281,7 +192,6 @@ function animateNumber(element, start, end) {
     requestAnimationFrame(step);
 }
 
-// Update every 3s
 fetchData();
 setInterval(fetchData, 3000);
 </script>
