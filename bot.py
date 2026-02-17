@@ -19,7 +19,7 @@ if not all([API_KEY, API_SECRET, BASE_URL]):
 api = tradeapi.REST(API_KEY, API_SECRET, BASE_URL, api_version="v2")
 
 # ----------------------------
-# Track open positions to prevent instant flip
+# Track open positions
 open_positions = {}  # key: symbol, value: 'long' or 'short'
 
 # ----------------------------
@@ -55,8 +55,8 @@ def home():
             <h2>Account Overview</h2>
             <div class="stat">Balance: <span id="balance">$0.00</span></div>
             <div class="stat">Daily PnL: <span id="pnl">$0.00</span></div>
-            <div class="stat">Recent Trade: <span id="recent_trade">N/A</span></div>
-            <div class="stat">Trading Session: <span id="session_status">Loading...</span></div>
+            <div class="stat">Recent Trade: <span id="recent_trade">None</span></div>
+            <div class="stat">Trading Session: <span id="session_status">Unknown</span></div>
             <div class="message-box">Automated trades, Proven results.</div>
         </div>
 
@@ -89,12 +89,94 @@ def home():
 
         <div class="card">
             <h2>Current Positions</h2>
-            <div id="positions_box">Loading...</div>
+            <div id="positions_box">No positions</div>
         </div>
     </div>
 
     <script>
-    // Your original dashboard JS here (unchanged)
+    async function fetchData() {
+        try {
+            const res = await fetch('/api/stats');
+            const data = await res.json();
+
+            document.getElementById('balance').innerText = data.balance || "$0.00";
+            document.getElementById('pnl').innerText = data.pnl || "$0.00";
+            document.getElementById('recent_trade').innerText = data.recent_trade || "None";
+            document.getElementById('session_status').innerText = data.session_status || "Unknown";
+
+            const posBox = document.getElementById('positions_box');
+            if(data.positions && data.positions.length > 0){
+                posBox.innerHTML = data.positions.map(p => {
+                    const color = p.side === "LONG" ? "#00ff00" : "#ff3b3b";
+                    return `<span style="color:${color}; font-weight:bold">${p.symbol}: ${p.side} ${p.qty} @ $${p.avg_entry_price}</span>`;
+                }).join('<br>');
+            } else {
+                posBox.innerHTML = "No positions";
+            }
+        } catch (e) {
+            console.error(e);
+            // Fallback values if API fails
+            document.getElementById('balance').innerText = "$0.00";
+            document.getElementById('pnl').innerText = "$0.00";
+            document.getElementById('recent_trade').innerText = "None";
+            document.getElementById('session_status').innerText = "Unknown";
+            document.getElementById('positions_box').innerText = "No positions";
+        }
+    }
+
+    fetchData();
+    setInterval(fetchData, 3000);
+
+    function generateIframeSrc(symbol){
+        return `https://s.tradingview.com/widgetembed/?frameElementId=tradingview_12345&symbol=NASDAQ%3A${symbol}&interval=15&hidesidetoolbar=1&symboledit=1&saveimage=1&toolbarbg=000000&studies=[]&theme=dark&style=1&timezone=Etc%2FUTC`;
+    }
+
+    function updateChart() {
+        const symbol = document.getElementById('chart_symbol').value.toUpperCase() || "AAPL";
+        document.getElementById('chart_iframe').src = generateIframeSrc(symbol);
+    }
+
+    function toggleMultiView() {
+        const container = document.getElementById('multi_chart_container');
+        if(container.style.display === "none") {
+            container.style.display = "grid";
+            container.style.gridTemplateColumns = "repeat(2, 1fr)";
+            const maxCharts = parseInt(document.getElementById('multi_count').value) || 4;
+
+            const tickers = ["META", "WMT", "HOOD", "RIVN", "AAPL", "PLTR", "NVDA", "TSLA"].slice(0, maxCharts);
+            container.innerHTML = "";
+
+            tickers.forEach(symbol => {
+                const chartDiv = document.createElement("div");
+                chartDiv.style.marginBottom = "10px";
+
+                const input = document.createElement("input");
+                input.type = "text";
+                input.value = symbol;
+                input.style.width = "70%";
+                input.style.marginBottom = "5px";
+
+                const button = document.createElement("button");
+                button.innerText = "Load";
+
+                const iframe = document.createElement("iframe");
+                iframe.style.width = "100%";
+                iframe.style.height = "300px";
+                iframe.allowTransparency = "true";
+                iframe.src = generateIframeSrc(symbol);
+
+                button.onclick = () => { iframe.src = generateIframeSrc(input.value.toUpperCase()); };
+
+                chartDiv.appendChild(input);
+                chartDiv.appendChild(button);
+                chartDiv.appendChild(iframe);
+                container.appendChild(chartDiv);
+            });
+
+        } else {
+            container.style.display = "none";
+        }
+    }
     </script>
     </body>
     </html>
@@ -104,30 +186,28 @@ def home():
 # ----------------------------
 @app.route("/api/stats", methods=["GET"])
 def api_stats():
+    # Defaults in case API fails
+    balance_str = "$0.00"
+    pnl_str = "$0.00"
+    recent_trade = "None"
+    session_status = "Unknown"
+    pos_list = []
+
     try:
         clock = api.get_clock()
         est_now = datetime.now(pytz.timezone("US/Eastern")).strftime("%I:%M:%S %p EST")
         session_status = f"{'OPEN 🟢' if clock.is_open else 'CLOSED 🔴'} {est_now}"
     except:
-        session_status = "UNKNOWN"
+        pass
 
     try:
         account = api.get_account()
-        balance = float(account.portfolio_value)
-        pnl = float(account.day_trade_pl)
-        balance_str = f"${balance:,.2f}"
-        pnl_str = f"${pnl:,.2f}"
+        balance_str = f"${float(account.portfolio_value):,.2f}"
+        pnl_str = f"${float(account.day_trade_pl):,.2f}"
 
         trades = api.list_orders(status='closed', limit=1, order_by='created_at', direction='desc')
-        recent_trade = f"{trades[0].symbol} {trades[0].side.upper()} {trades[0].filled_qty}" if trades else "N/A"
+        recent_trade = f"{trades[0].symbol} {trades[0].side.upper()} {trades[0].filled_qty}" if trades else "None"
 
-    except:
-        balance_str = "$0.00"
-        pnl_str = "$0.00"
-        recent_trade = "N/A"
-
-    pos_list = []
-    try:
         positions = api.list_positions()
         for p in positions:
             side = "LONG" if float(p.qty) > 0 else "SHORT"
@@ -138,7 +218,7 @@ def api_stats():
                 "side": side
             })
     except:
-        pos_list = []
+        pass
 
     return jsonify({
         "balance": balance_str,
@@ -172,13 +252,7 @@ def webhook():
         if side == "buy":
             if open_positions.get(symbol) == "long":
                 return jsonify({"status": "long_already_open"})
-            order = api.submit_order(
-                symbol=symbol,
-                qty=qty,
-                side="buy",
-                type="market",
-                time_in_force="day"
-            )
+            order = api.submit_order(symbol=symbol, qty=qty, side="buy", type="market", time_in_force="day")
             open_positions[symbol] = "long"
             return jsonify({"status": "long_opened", "order_id": order.id})
 
@@ -186,13 +260,7 @@ def webhook():
         elif side == "sell":
             if open_positions.get(symbol) == "short":
                 return jsonify({"status": "short_already_open"})
-            order = api.submit_order(
-                symbol=symbol,
-                qty=qty,
-                side="sell",
-                type="market",
-                time_in_force="day"
-            )
+            order = api.submit_order(symbol=symbol, qty=qty, side="sell", type="market", time_in_force="day")
             open_positions[symbol] = "short"
             return jsonify({"status": "short_opened", "order_id": order.id})
 
@@ -219,7 +287,6 @@ def webhook():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5100))
     app.run(host="0.0.0.0", port=port)
-
 
 
 
