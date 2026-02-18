@@ -157,21 +157,19 @@ def api_stats():
     pos_list = []
 
     try:
-        # Session status
         clock = api.get_clock()
         est_now = datetime.now(pytz.timezone("US/Eastern")).strftime("%I:%M:%S %p EST")
         session_status = f"{'OPEN 🟢' if clock.is_open else 'CLOSED 🔴'} {est_now}"
     except: pass
 
     try:
-        # Balance
         account = api.get_account()
         balance = float(account.cash) + sum(float(p.market_value) for p in api.list_positions())
         balance_str = f"${balance:,.2f}"
 
-        # Open positions and unrealized PnL
         positions = api.list_positions()
         total_unrealized_pnl = 0.0
+
         for p in positions:
             side = "LONG" if float(p.qty) > 0 else "SHORT"
             qty = abs(float(p.qty))
@@ -179,6 +177,7 @@ def api_stats():
             current_price = float(p.current_price)
             unrealized_pnl = (current_price - entry)*qty if side=="LONG" else (entry - current_price)*qty
             total_unrealized_pnl += unrealized_pnl
+
             pos_list.append({
                 "symbol": p.symbol,
                 "qty": qty,
@@ -187,48 +186,16 @@ def api_stats():
                 "unrealized_pnl": f"${unrealized_pnl:,.2f}"
             })
 
-        # Realized PnL from closed trades today
-        tz = pytz.timezone("US/Eastern")
-        today_start = datetime.now(tz).replace(hour=0, minute=0, second=0, microsecond=0)
-        trades = api.list_orders(status='closed', limit=500)
-        total_realized_pnl = 0.0
-        last_prices = {}  # track last buy/sell per symbol
+        pnl_str = f"${total_unrealized_pnl:,.2f}"  # <-- live PnL
+
+        trades = api.list_orders(status='all', limit=10)
+        trades.sort(key=lambda x: x.created_at, reverse=True)
         for t in trades:
-            if t.filled_at:
-                filled_dt = t.filled_at.astimezone(tz)
-                if filled_dt >= today_start:
-                    symbol = t.symbol
-                    side = t.side
-                    filled_qty = float(t.filled_qty)
-                    filled_avg = float(t.filled_avg_price or 0)
-                    if symbol not in last_prices:
-                        last_prices[symbol] = {"long_qty":0, "short_qty":0, "long_total":0.0, "short_total":0.0}
-                    s = last_prices[symbol]
-                    if side=="buy":
-                        s["long_qty"] += filled_qty
-                        s["long_total"] += filled_qty * filled_avg
-                    elif side=="sell":
-                        s["short_qty"] += filled_qty
-                        s["short_total"] += filled_qty * filled_avg
-
-        # Compute realized PnL per symbol
-        for s in last_prices.values():
-            # PnL = total sells - total buys for today
-            total_realized_pnl += s["short_total"] - s["long_total"]
-
-        # Total daily PnL
-        total_daily_pnl = total_unrealized_pnl + total_realized_pnl
-        pnl_str = f"${total_daily_pnl:,.2f}"
-
-        # Recent trade
-        trades_recent = api.list_orders(status='all', limit=10)
-        trades_recent.sort(key=lambda x: x.created_at, reverse=True)
-        for t in trades_recent:
             if float(t.filled_qty) > 0:
                 recent_trade = f"{t.symbol} {t.side.upper()} {t.filled_qty} @ ${t.filled_avg_price if t.filled_avg_price else '0.00'}"
                 break
 
-    except Exception as e:
+    except Exception as e: 
         print("Stats error:", e)
 
     return jsonify({
@@ -238,6 +205,8 @@ def api_stats():
         "session_status": session_status,
         "positions": pos_list
     })
+
+
 
 
 # ----------------------------
