@@ -223,7 +223,6 @@ def webhook():
         return jsonify({"error": str(e)}),500
 
 # ----------------------------
-# Execute order with tiered TP/SL + break-even + safety buffer
 def execute_order(symbol, qty, side):
     lock = get_lock(symbol)
     with lock:
@@ -239,7 +238,7 @@ def execute_order(symbol, qty, side):
                     tp_prices = [round(entry_price*(1+TP_PERCENT[0]),2),
                                  round(entry_price*(1+TP_PERCENT[1]),2),
                                  round(entry_price*(1+TP_PERCENT[2]),2)]
-                    tp_qtys = [2,2,total_qty-4]
+                    tp_qtys = [2,2,max(total_qty-4,0)]
                     sl_prices = [round(entry_price*(1-SL_PERCENT[0]),2),
                                  round(entry_price*(1-SL_PERCENT[1]),2)]
                     sl_qtys = [3,2]
@@ -249,7 +248,7 @@ def execute_order(symbol, qty, side):
                     tp_prices = [round(entry_price*(1-TP_PERCENT[0]),2),
                                  round(entry_price*(1-TP_PERCENT[1]),2),
                                  round(entry_price*(1-TP_PERCENT[2]),2)]
-                    tp_qtys = [2,2,total_qty-4]
+                    tp_qtys = [2,2,max(total_qty-4,0)]
                     sl_prices = [round(entry_price*(1+SL_PERCENT[0]),2),
                                  round(entry_price*(1+SL_PERCENT[1]),2)]
                     sl_qtys = [3,2]
@@ -269,13 +268,12 @@ def execute_order(symbol, qty, side):
                         while True:
                             try: api.get_position(symbol); time.sleep(0.5)
                             except tradeapi.rest.APIError: break
-                        time.sleep(2)  # <-- 2-second safety buffer
+                        time.sleep(2)  # <-- safety buffer
                     except tradeapi.rest.APIError: pass
 
                 api.submit_order(symbol=symbol, qty=qty, side="buy", type="market", time_in_force="day")
                 entry_price = current_price
                 tiers = tiered_tp_sl(entry_price, qty, "long")
-                # monitor_long() function (unchanged from previous version)
                 threading.Thread(target=lambda: monitor_long(symbol, tiers, entry_price, qty), daemon=True).start()
                 open_positions[symbol] = {"side":"long","qty":qty,"entry_price":entry_price}
                 return {"status":"long_opened"}
@@ -292,7 +290,7 @@ def execute_order(symbol, qty, side):
                         while True:
                             try: api.get_position(symbol); time.sleep(0.5)
                             except tradeapi.rest.APIError: break
-                        time.sleep(2)  # <-- 2-second safety buffer
+                        time.sleep(2)  # <-- safety buffer
                     except tradeapi.rest.APIError: pass
 
                 api.submit_order(symbol=symbol, qty=qty, side="sell", type="market", time_in_force="day")
@@ -310,7 +308,82 @@ def execute_order(symbol, qty, side):
             return {"error": str(e)}
 
 # ----------------------------
-# monitor_long and monitor_short should be the same as in your previous bot version
+def monitor_long(symbol, tiers, entry_price, total_qty):
+    while True:
+        try:
+            pos = api.get_position(symbol)
+            current_price = float(pos.current_price)
+            qty_remaining = int(pos.qty)
+
+            # Check TP tiers
+            for i, (tp_type, prices, qtys) in enumerate(tiers):
+                if tp_type=="tp":
+                    for j, price_target in enumerate(prices):
+                        if qtys[j] > 0 and current_price >= price_target:
+                            close_qty = min(qtys[j], qty_remaining)
+                            if close_qty>0:
+                                api.submit_order(symbol=symbol, qty=close_qty, side="sell", type="market", time_in_force="day")
+                                qtys[j] -= close_qty
+                                qty_remaining -= close_qty
+
+            # Check SL tiers
+                elif tp_type=="sl":
+                    for j, price_target in enumerate(prices):
+                        if qtys[j] > 0 and current_price <= price_target:
+                            close_qty = min(qtys[j], qty_remaining)
+                            if close_qty>0:
+                                api.submit_order(symbol=symbol, qty=close_qty, side="sell", type="market", time_in_force="day")
+                                qtys[j] -= close_qty
+                                qty_remaining -= close_qty
+
+            if qty_remaining <= 0:
+                open_positions.pop(symbol, None)
+                break
+
+        except tradeapi.rest.APIError:
+            open_positions.pop(symbol, None)
+            break
+        except Exception as e:
+            print(f"Monitor long error {symbol}: {e}")
+        time.sleep(1)
+
+def monitor_short(symbol, tiers, entry_price, total_qty):
+    while True:
+        try:
+            pos = api.get_position(symbol)
+            current_price = float(pos.current_price)
+            qty_remaining = abs(int(pos.qty))
+
+            # Check TP tiers
+            for i, (tp_type, prices, qtys) in enumerate(tiers):
+                if tp_type=="tp":
+                    for j, price_target in enumerate(prices):
+                        if qtys[j] > 0 and current_price <= price_target:
+                            close_qty = min(qtys[j], qty_remaining)
+                            if close_qty>0:
+                                api.submit_order(symbol=symbol, qty=close_qty, side="buy", type="market", time_in_force="day")
+                                qtys[j] -= close_qty
+                                qty_remaining -= close_qty
+
+                elif tp_type=="sl":
+                    for j, price_target in enumerate(prices):
+                        if qtys[j] > 0 and current_price >= price_target:
+                            close_qty = min(qtys[j], qty_remaining)
+                            if close_qty>0:
+                                api.submit_order(symbol=symbol, qty=close_qty, side="buy", type="market", time_in_force="day")
+                                qtys[j] -= close_qty
+                                qty_remaining -= close_qty
+
+            if qty_remaining <= 0:
+                open_positions.pop(symbol, None)
+                break
+
+        except tradeapi.rest.APIError:
+            open_positions.pop(symbol, None)
+            break
+        except Exception as e:
+            print(f"Monitor short error {symbol}: {e}")
+        time.sleep(1)
 
 # ----------------------------
 def scheduled_cleanup():
