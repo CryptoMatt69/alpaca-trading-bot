@@ -37,7 +37,7 @@ SL_PERCENT = 0.6 / 100
 # ----------------------------
 @app.route("/", methods=["GET"])
 def home():
-    # Restore the full dashboard HTML exactly as before
+    # Dashboard HTML exactly as before
     page = """<!DOCTYPE html>
 <html>
 <head>
@@ -241,9 +241,15 @@ def execute_order(symbol, qty, side):
                     return {"status":"position_closed"}
                 else: return {"status":"no_position_to_close"}
 
-            # Use last quote for current price to avoid get_last_trade (which caused errors)
-            last_quote = api.get_last_quote(symbol)
-            current_price = float(last_quote.askprice if side=="long" else last_quote.bidprice)
+            # ---------- FIX: get current price without using get_last_trade ----------
+            try:
+                quote = api.get_latest_trade(symbol)
+                current_price = float(quote.price)
+            except:
+                # fallback if API call fails
+                current_price = None
+                bars = api.get_bars(symbol, tradeapi.TimeFrame.Minute, limit=1).df
+                current_price = float(bars['close'][-1])
 
             # LONG ENTRY
             if side=="long":
@@ -278,7 +284,7 @@ def execute_order(symbol, qty, side):
                                 break
                         except Exception as e:
                             if "wash trade" in str(e).lower():
-                                pass  # <-- suppress wash trade error
+                                pass
                         time.sleep(1)
                 threading.Thread(target=monitor_tp, daemon=True).start()
                 return {"status":"long_opened","order_id":order.id}
@@ -316,7 +322,7 @@ def execute_order(symbol, qty, side):
                                 break
                         except Exception as e:
                             if "wash trade" in str(e).lower():
-                                pass  # <-- suppress wash trade error
+                                pass
                         time.sleep(1)
                 threading.Thread(target=monitor_tp_short, daemon=True).start()
                 return {"status":"short_opened","order_id":order.id}
@@ -324,7 +330,6 @@ def execute_order(symbol, qty, side):
             else: return {"error":f"Invalid side: {side}"}
 
         except Exception as e:
-            # suppress wash trade errors
             if "wash trade" in str(e).lower():
                 return {"status":"order_accepted_but_potential_wash_trade"}
             print(f"Execution error for {symbol} {side}:", e)
