@@ -132,7 +132,7 @@ async function fetchData() {
         const data = await res.json();
         document.getElementById('balance').innerText = data.balance;
         const pnlEl = document.getElementById('pnl');
-        pnlEl.style.color = parseFloat(data.pnl.replace('$','')) >= 0 ? "#DA70D6" : "#ff3b3b";
+        pnlEl.style.color = parseFloat(data.pnl.replace('$','')) >= 0 ? "#00ff00" : "#ff3b3b";
         pnlEl.innerText = data.pnl;
         document.getElementById('recent_trade').innerText = data.recent_trade;
         document.getElementById('session_status').innerText = data.session_status;
@@ -166,7 +166,27 @@ def api_stats():
         account = api.get_account()
         balance = float(account.cash) + sum(float(p.market_value) for p in api.list_positions())
         balance_str = f"${balance:,.2f}"
-        pnl_str = "$0.00"
+
+        positions = api.list_positions()
+        total_unrealized_pnl = 0.0
+
+        for p in positions:
+            side = "LONG" if float(p.qty) > 0 else "SHORT"
+            qty = abs(float(p.qty))
+            entry = float(p.avg_entry_price)
+            current_price = float(p.current_price)
+            unrealized_pnl = (current_price - entry)*qty if side=="LONG" else (entry - current_price)*qty
+            total_unrealized_pnl += unrealized_pnl
+
+            pos_list.append({
+                "symbol": p.symbol,
+                "qty": qty,
+                "avg_entry_price": entry,
+                "side": side,
+                "unrealized_pnl": f"${unrealized_pnl:,.2f}"
+            })
+
+        pnl_str = f"${total_unrealized_pnl:,.2f}"  # <-- live PnL
 
         trades = api.list_orders(status='all', limit=10)
         trades.sort(key=lambda x: x.created_at, reverse=True)
@@ -175,21 +195,8 @@ def api_stats():
                 recent_trade = f"{t.symbol} {t.side.upper()} {t.filled_qty} @ ${t.filled_avg_price if t.filled_avg_price else '0.00'}"
                 break
 
-        positions = api.list_positions()
-        for p in positions:
-            side = "LONG" if float(p.qty) > 0 else "SHORT"
-            qty = abs(float(p.qty))
-            entry = float(p.avg_entry_price)
-            current_price = float(p.current_price)
-            unrealized_pnl = (current_price - entry)*qty if side=="LONG" else (entry - current_price)*qty
-            pos_list.append({
-                "symbol": p.symbol,
-                "qty": qty,
-                "avg_entry_price": entry,
-                "side": side,
-                "unrealized_pnl": f"${unrealized_pnl:,.2f}"
-            })
-    except Exception as e: print("Stats error:", e)
+    except Exception as e: 
+        print("Stats error:", e)
 
     return jsonify({
         "balance": balance_str,
@@ -234,7 +241,7 @@ def execute_order(symbol, qty, side):
                     return {"status":"position_closed"}
                 else: return {"status":"no_position_to_close"}
 
-            last_trade = api.get_last_trade(symbol)  # FIXED: replaced get_last_quote
+            last_trade = api.get_last_trade(symbol)  
             current_price = float(last_trade.price) if last_trade.price else 0.0
 
             # LONG ENTRY
@@ -319,3 +326,4 @@ def execute_order(symbol, qty, side):
 if __name__=="__main__":
     port = int(os.environ.get("PORT",5100))
     app.run(host="0.0.0.0", port=port)
+
