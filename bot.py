@@ -275,7 +275,7 @@ def execute_order(symbol, qty, side):
                 api.submit_order(symbol=symbol, qty=qty, side="buy", type="market", time_in_force="day")
                 entry_price = current_price
                 tiers = tiered_tp_sl(entry_price, qty, "long")
-                # monitor_long() as in your previous bot
+                # monitor_long() function (unchanged from previous version)
                 threading.Thread(target=lambda: monitor_long(symbol, tiers, entry_price, qty), daemon=True).start()
                 open_positions[symbol] = {"side":"long","qty":qty,"entry_price":entry_price}
                 return {"status":"long_opened"}
@@ -310,7 +310,7 @@ def execute_order(symbol, qty, side):
             return {"error": str(e)}
 
 # ----------------------------
-# The monitor_long and monitor_short functions can remain the same as before
+# monitor_long and monitor_short should be the same as in your previous bot version
 
 # ----------------------------
 def scheduled_cleanup():
