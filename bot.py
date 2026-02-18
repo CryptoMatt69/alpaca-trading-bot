@@ -224,6 +224,7 @@ def webhook():
         return jsonify({"error": str(e)}),500
 
 # ----------------------------
+# REPLACED execute_order WITH TIERED TP/SL LOGIC
 def execute_order(symbol, qty, side):
     lock = get_lock(symbol)
     with lock:
@@ -243,79 +244,113 @@ def execute_order(symbol, qty, side):
             last_trade = api.get_latest_trade(symbol)
             current_price = float(last_trade.price)
 
-            # ----------------------------
-            # LONG ENTRY
+            def tiered_tp_sl(entry_price, total_qty, side):
+                tiers = []
+                if side=="long":
+                    tp_prices = [round(entry_price*1.015,2), round(entry_price*1.02,2), round(entry_price*1.03,2)]
+                    tp_qtys = [2,2,1]
+                    sl_prices = [round(entry_price*(1-SL_PERCENT),2), round(entry_price*0.99,2)]
+                    sl_qtys = [3,2]
+                    tiers.append(("tp", tp_prices, tp_qtys))
+                    tiers.append(("sl", sl_prices, sl_qtys))
+                else:
+                    tp_prices = [round(entry_price*0.985,2), round(entry_price*0.98,2), round(entry_price*0.97,2)]
+                    tp_qtys = [2,2,1]
+                    sl_prices = [round(entry_price*(1+SL_PERCENT),2), round(entry_price*1.01,2)]
+                    sl_qtys = [3,2]
+                    tiers.append(("tp", tp_prices, tp_qtys))
+                    tiers.append(("sl", sl_prices, sl_qtys))
+                return tiers
+
             if side=="long":
                 if current_side=="long": return {"status":"long_already_open"}
                 elif current_side=="short":
                     api.close_position(symbol)
                     open_positions.pop(symbol, None)
                     time.sleep(2)
-
-                order = api.submit_order(symbol=symbol, qty=qty, side="buy", type="market", time_in_force="day")
+                api.submit_order(symbol=symbol, qty=qty, side="buy", type="market", time_in_force="day")
                 entry_price = current_price
+                tiers = tiered_tp_sl(entry_price, qty, "long")
 
-                tp_qty = min(3, qty)
-                tp_price_trigger = round(entry_price * 1.015, 2)  # 1.5% above entry
-
-                # Monitor TP and sell 3 shares at market when triggered
-                def monitor_tp_market():
+                def monitor_tiers():
+                    sold_tp = 0
+                    sold_sl = 0
                     while True:
                         last_trade = api.get_latest_trade(symbol)
-                        current_price = float(last_trade.price)
-                        if current_price >= tp_price_trigger:
+                        price_now = float(last_trade.price)
+                        tp_prices, tp_qtys = tiers[0][1], tiers[0][2]
+                        for i, tp_price in enumerate(tp_prices):
+                            if tp_qtys[i]>0 and price_now>=tp_price:
+                                try:
+                                    api.submit_order(symbol=symbol, qty=tp_qtys[i], side="sell", type="market", time_in_force="day")
+                                    tp_qtys[i]=0
+                                    sold_tp +=1
+                                except: pass
+                        sl_prices, sl_qtys = tiers[1][1], tiers[1][2]
+                        for i, sl_price in enumerate(sl_prices):
+                            if sl_qtys[i]>0 and price_now<=sl_price:
+                                try:
+                                    api.submit_order(symbol=symbol, qty=sl_qtys[i], side="sell", type="market", time_in_force="day")
+                                    sl_qtys[i]=0
+                                    sold_sl +=1
+                                except: pass
+                        remaining_tp = sum(tp_qtys)
+                        if remaining_tp>0 and price_now <= entry_price:
                             try:
-                                api.submit_order(symbol=symbol, qty=tp_qty, side="sell", type="market", time_in_force="day")
+                                api.submit_order(symbol=symbol, qty=remaining_tp, side="sell", type="market", time_in_force="day")
                                 break
-                            except Exception as e:
-                                print("TP market order error:", e)
+                            except: pass
+                        if sold_tp+sold_sl>=qty: break
                         time.sleep(1)
-                threading.Thread(target=monitor_tp_market, daemon=True).start()
 
-                # Stop loss
-                sl_price = round(entry_price*(1-SL_PERCENT),2)
-                stop_order = api.submit_order(symbol=symbol, qty=qty, side="sell", type="stop", time_in_force="day", stop_price=sl_price)
+                threading.Thread(target=monitor_tiers, daemon=True).start()
+                open_positions[symbol] = {"side":"long","qty":qty,"entry_price":entry_price}
+                return {"status":"long_opened"}
 
-                open_positions[symbol] = {"side":"long","qty":qty,"entry_price":entry_price,"stop_order_id":stop_order.id,"tp_qty":tp_qty}
-
-                return {"status":"long_opened","order_id":order.id}
-
-            # ----------------------------
-            # SHORT ENTRY
             elif side=="short":
                 if current_side=="short": return {"status":"short_already_open"}
                 elif current_side=="long":
                     api.close_position(symbol)
                     open_positions.pop(symbol, None)
                     time.sleep(2)
-
-                order = api.submit_order(symbol=symbol, qty=qty, side="sell", type="market", time_in_force="day")
+                api.submit_order(symbol=symbol, qty=qty, side="sell", type="market", time_in_force="day")
                 entry_price = current_price
+                tiers = tiered_tp_sl(entry_price, qty, "short")
 
-                tp_qty = min(3, qty)
-                tp_price_trigger = round(entry_price * 0.985, 2)  # 1.5% below entry
-
-                # Monitor TP and buy 3 shares at market when triggered
-                def monitor_tp_market_short():
+                def monitor_tiers_short():
+                    sold_tp = 0
+                    sold_sl = 0
                     while True:
                         last_trade = api.get_latest_trade(symbol)
-                        current_price = float(last_trade.price)
-                        if current_price <= tp_price_trigger:
+                        price_now = float(last_trade.price)
+                        tp_prices, tp_qtys = tiers[0][1], tiers[0][2]
+                        for i, tp_price in enumerate(tp_prices):
+                            if tp_qtys[i]>0 and price_now<=tp_price:
+                                try:
+                                    api.submit_order(symbol=symbol, qty=tp_qtys[i], side="buy", type="market", time_in_force="day")
+                                    tp_qtys[i]=0
+                                    sold_tp +=1
+                                except: pass
+                        sl_prices, sl_qtys = tiers[1][1], tiers[1][2]
+                        for i, sl_price in enumerate(sl_prices):
+                            if sl_qtys[i]>0 and price_now>=sl_price:
+                                try:
+                                    api.submit_order(symbol=symbol, qty=sl_qtys[i], side="buy", type="market", time_in_force="day")
+                                    sl_qtys[i]=0
+                                    sold_sl +=1
+                                except: pass
+                        remaining_tp = sum(tp_qtys)
+                        if remaining_tp>0 and price_now >= entry_price:
                             try:
-                                api.submit_order(symbol=symbol, qty=tp_qty, side="buy", type="market", time_in_force="day")
+                                api.submit_order(symbol=symbol, qty=remaining_tp, side="buy", type="market", time_in_force="day")
                                 break
-                            except Exception as e:
-                                print("TP market order error:", e)
+                            except: pass
+                        if sold_tp+sold_sl>=qty: break
                         time.sleep(1)
-                threading.Thread(target=monitor_tp_market_short, daemon=True).start()
 
-                # Stop loss
-                sl_price = round(entry_price*(1+SL_PERCENT),2)
-                stop_order = api.submit_order(symbol=symbol, qty=qty, side="buy", type="stop", time_in_force="day", stop_price=sl_price)
-
-                open_positions[symbol] = {"side":"short","qty":qty,"entry_price":entry_price,"stop_order_id":stop_order.id,"tp_qty":tp_qty}
-
-                return {"status":"short_opened","order_id":order.id}
+                threading.Thread(target=monitor_tiers_short, daemon=True).start()
+                open_positions[symbol] = {"side":"short","qty":qty,"entry_price":entry_price}
+                return {"status":"short_opened"}
 
             else:
                 return {"error":f"Invalid side: {side}"}
@@ -334,7 +369,6 @@ def scheduled_cleanup():
             now = datetime.now(pytz.timezone("US/Eastern"))
             hm = now.strftime("%H:%M")
 
-            # Pre-market and just after open cleanup
             if hm in ["09:28","09:29","09:30","09:31"] and not closed_930:
                 print(f"[SCHEDULE] Pre/Open-market cleanup at {hm}")
                 try:
@@ -349,7 +383,6 @@ def scheduled_cleanup():
             if hm not in ["09:28","09:29","09:30","09:31"]:
                 closed_930 = False
 
-            # Market-close cleanup
             if hm in ["15:58","15:59","16:00","16:01"] and not closed_1600:
                 print(f"[SCHEDULE] Market-close cleanup at {hm}")
                 try:
