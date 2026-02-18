@@ -241,9 +241,9 @@ def execute_order(symbol, qty, side):
                 else: return {"status":"no_position_to_close"}
 
             # ----------------------------
-            # FIX for v3.2.0: get last trade price instead of ask/bid
-            last_trade = api.get_last_trade(symbol)
-            current_price = float(last_trade.price)
+            # v3.2.0 compatible: get latest price using get_barset
+            bar = api.get_barset(symbol, "minute", limit=1)[symbol][0]
+            current_price = float(bar.c)
 
             # LONG ENTRY
             if side=="long":
@@ -258,20 +258,21 @@ def execute_order(symbol, qty, side):
 
                 tp_qty = min(3, qty)
                 tp_price = round(entry_price*(1+TP_PERCENT),2)
-                api.submit_order(symbol=symbol, qty=tp_qty, side="sell", type="limit", time_in_force="day", limit_price=tp_price)
+                tp_order = api.submit_order(symbol=symbol, qty=tp_qty, side="sell", type="limit", time_in_force="day", limit_price=tp_price)
 
                 sl_price = round(entry_price*(1-SL_PERCENT),2)
                 stop_order = api.submit_order(symbol=symbol, qty=qty, side="sell", type="stop", time_in_force="day", stop_price=sl_price)
 
                 open_positions[symbol] = {"side":"long","qty":qty,"entry_price":entry_price,"stop_order_id":stop_order.id,"tp_qty":tp_qty}
 
+                # ----------------------------
                 def monitor_tp():
                     while True:
                         try:
                             orders = api.list_orders(status='all',symbol=symbol)
-                            tp_order = next((o for o in orders if o.side=="sell" and float(o.qty)==tp_qty and o.type=="limit"),None)
-                            if tp_order and float(tp_order.filled_qty)==tp_qty:
-                                remaining_qty = qty-tp_qty
+                            filled_tp = sum(float(o.filled_qty) for o in orders if o.side=="sell" and o.type=="limit")
+                            if filled_tp >= tp_qty:
+                                remaining_qty = qty - tp_qty
                                 if remaining_qty>0:
                                     try: api.cancel_order(stop_order.id)
                                     except: pass
@@ -297,7 +298,7 @@ def execute_order(symbol, qty, side):
 
                 tp_qty = min(3, qty)
                 tp_price = round(entry_price*(1-TP_PERCENT),2)
-                api.submit_order(symbol=symbol, qty=tp_qty, side="buy", type="limit", time_in_force="day", limit_price=tp_price)
+                tp_order = api.submit_order(symbol=symbol, qty=tp_qty, side="buy", type="limit", time_in_force="day", limit_price=tp_price)
 
                 sl_price = round(entry_price*(1+SL_PERCENT),2)
                 stop_order = api.submit_order(symbol=symbol, qty=qty, side="buy", type="stop", time_in_force="day", stop_price=sl_price)
@@ -308,9 +309,9 @@ def execute_order(symbol, qty, side):
                     while True:
                         try:
                             orders = api.list_orders(status='all',symbol=symbol)
-                            tp_order = next((o for o in orders if o.side=="buy" and float(o.qty)==tp_qty and o.type=="limit"),None)
-                            if tp_order and float(tp_order.filled_qty)==tp_qty:
-                                remaining_qty = qty-tp_qty
+                            filled_tp = sum(float(o.filled_qty) for o in orders if o.side=="buy" and o.type=="limit")
+                            if filled_tp >= tp_qty:
+                                remaining_qty = qty - tp_qty
                                 if remaining_qty>0:
                                     try: api.cancel_order(stop_order.id)
                                     except: pass
@@ -372,3 +373,4 @@ threading.Thread(target=scheduled_cleanup, daemon=True).start()
 if __name__=="__main__":
     port = int(os.environ.get("PORT",5100))
     app.run(host="0.0.0.0", port=port)
+
