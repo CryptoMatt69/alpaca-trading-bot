@@ -35,44 +35,9 @@ TP_PERCENT = 1.2 / 100
 SL_PERCENT = 0.6 / 100
 
 # ----------------------------
-def pre_market_cleanup():
-    """Cancel all open/pending orders at 9:30 AM EST."""
-    while True:
-        now = datetime.now(pytz.timezone("US/Eastern"))
-        if now.hour == 9 and now.minute == 30:
-            try:
-                orders = api.list_orders(status="open")
-                for o in orders:
-                    try: api.cancel_order(o.id)
-                    except: pass
-                print("Pre-market cleanup done: all open orders canceled")
-            except Exception as e:
-                print("Pre-market cleanup error:", e)
-            time.sleep(60)
-        time.sleep(10)
-threading.Thread(target=pre_market_cleanup, daemon=True).start()
-
-def post_market_close():
-    """Close all positions at 4:00 PM EST."""
-    while True:
-        now = datetime.now(pytz.timezone("US/Eastern"))
-        if now.hour == 16 and now.minute == 0:
-            try:
-                positions = api.list_positions()
-                for p in positions:
-                    try: api.close_position(p.symbol)
-                    except: pass
-                open_positions.clear()
-                print("Post-market close: all positions closed")
-            except Exception as e:
-                print("Post-market close error:", e)
-            time.sleep(60)
-        time.sleep(10)
-threading.Thread(target=post_market_close, daemon=True).start()
-
-# ----------------------------
 @app.route("/", methods=["GET"])
 def home():
+    # Full HTML dashboard restored
     page = """<!DOCTYPE html>
 <html>
 <head>
@@ -276,10 +241,11 @@ def execute_order(symbol, qty, side):
                     return {"status":"position_closed"}
                 else: return {"status":"no_position_to_close"}
 
-            # We no longer fetch last_trade — avoid fake errors
-            current_price = None
+            # Use last quote to get a valid price
+            last_quote = api.get_last_quote(symbol)
+            current_price = float(last_quote.askprice if side=="long" else last_quote.bidprice)
 
-            # LONG ENTRY
+            # ---------------- LONG ENTRY ----------------
             if side=="long":
                 if current_side=="long": return {"status":"long_already_open"}
                 elif current_side=="short":
@@ -287,14 +253,8 @@ def execute_order(symbol, qty, side):
                     open_positions.pop(symbol, None)
                     time.sleep(2)
 
-                order = api.submit_order(
-                    symbol=symbol,
-                    qty=qty,
-                    side="buy",
-                    type="market",
-                    time_in_force="day"
-                )
-                entry_price = float(order.filled_avg_price) if order.filled_avg_price else 0.0
+                order = api.submit_order(symbol=symbol, qty=qty, side="buy", type="market", time_in_force="day")
+                entry_price = current_price
 
                 tp_price = round(entry_price*(1+TP_PERCENT),2)
                 api.submit_order(symbol=symbol, qty=3, side="sell", type="limit", time_in_force="day", limit_price=tp_price)
@@ -317,13 +277,12 @@ def execute_order(symbol, qty, side):
                                     api.submit_order(symbol=symbol, qty=remaining_qty, side="sell", type="stop", time_in_force="day", stop_price=entry_price)
                                 break
                         except Exception as e:
-                            if "wash trade" in str(e).lower():
-                                pass
+                            if "wash trade" in str(e).lower(): pass
                         time.sleep(1)
                 threading.Thread(target=monitor_tp, daemon=True).start()
                 return {"status":"long_opened","order_id":order.id}
 
-            # SHORT ENTRY
+            # ---------------- SHORT ENTRY ----------------
             elif side=="short":
                 if current_side=="short": return {"status":"short_already_open"}
                 elif current_side=="long":
@@ -331,14 +290,8 @@ def execute_order(symbol, qty, side):
                     open_positions.pop(symbol, None)
                     time.sleep(2)
 
-                order = api.submit_order(
-                    symbol=symbol,
-                    qty=qty,
-                    side="sell",
-                    type="market",
-                    time_in_force="day"
-                )
-                entry_price = float(order.filled_avg_price) if order.filled_avg_price else 0.0
+                order = api.submit_order(symbol=symbol, qty=qty, side="sell", type="market", time_in_force="day")
+                entry_price = current_price
 
                 tp_price = round(entry_price*(1-TP_PERCENT),2)
                 api.submit_order(symbol=symbol, qty=3, side="buy", type="limit", time_in_force="day", limit_price=tp_price)
@@ -361,8 +314,7 @@ def execute_order(symbol, qty, side):
                                     api.submit_order(symbol=symbol, qty=remaining_qty, side="buy", type="stop", time_in_force="day", stop_price=entry_price)
                                 break
                         except Exception as e:
-                            if "wash trade" in str(e).lower():
-                                pass
+                            if "wash trade" in str(e).lower(): pass
                         time.sleep(1)
                 threading.Thread(target=monitor_tp_short, daemon=True).start()
                 return {"status":"short_opened","order_id":order.id}
@@ -379,4 +331,5 @@ def execute_order(symbol, qty, side):
 if __name__=="__main__":
     port = int(os.environ.get("PORT",5100))
     app.run(host="0.0.0.0", port=port)
+
 
