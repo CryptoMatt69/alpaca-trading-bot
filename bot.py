@@ -31,7 +31,7 @@ def get_lock(symbol):
     return locks[symbol]
 
 # ----------------------------
-TP_PERCENT = 1.2 / 100
+TP_PERCENT = 1.5 / 100  # updated to 1.5%
 SL_PERCENT = 0.6 / 100
 
 # ----------------------------
@@ -240,11 +240,10 @@ def execute_order(symbol, qty, side):
                     return {"status":"position_closed"}
                 else: return {"status":"no_position_to_close"}
 
-            # ----------------------------
-            # FIX v3.2.0: get latest trade instead of ask/bid
             last_trade = api.get_latest_trade(symbol)
             current_price = float(last_trade.price)
 
+            # ----------------------------
             # LONG ENTRY
             if side=="long":
                 if current_side=="long": return {"status":"long_already_open"}
@@ -257,33 +256,31 @@ def execute_order(symbol, qty, side):
                 entry_price = current_price
 
                 tp_qty = min(3, qty)
-                tp_price = round(entry_price*(1+TP_PERCENT),2)
-                api.submit_order(symbol=symbol, qty=tp_qty, side="sell", type="limit", time_in_force="day", limit_price=tp_price)
+                tp_price_trigger = round(entry_price * 1.015, 2)  # 1.5% above entry
 
+                # Monitor TP and sell 3 shares at market when triggered
+                def monitor_tp_market():
+                    while True:
+                        last_trade = api.get_latest_trade(symbol)
+                        current_price = float(last_trade.price)
+                        if current_price >= tp_price_trigger:
+                            try:
+                                api.submit_order(symbol=symbol, qty=tp_qty, side="sell", type="market", time_in_force="day")
+                                break
+                            except Exception as e:
+                                print("TP market order error:", e)
+                        time.sleep(1)
+                threading.Thread(target=monitor_tp_market, daemon=True).start()
+
+                # Stop loss
                 sl_price = round(entry_price*(1-SL_PERCENT),2)
                 stop_order = api.submit_order(symbol=symbol, qty=qty, side="sell", type="stop", time_in_force="day", stop_price=sl_price)
 
                 open_positions[symbol] = {"side":"long","qty":qty,"entry_price":entry_price,"stop_order_id":stop_order.id,"tp_qty":tp_qty}
 
-                def monitor_tp():
-                    while True:
-                        try:
-                            orders = api.list_orders(status='all',symbol=symbol)
-                            tp_order = next((o for o in orders if o.side=="sell" and float(o.qty)==tp_qty and o.type=="limit"),None)
-                            if tp_order and float(tp_order.filled_qty)==tp_qty:
-                                remaining_qty = qty-tp_qty
-                                if remaining_qty>0:
-                                    try: api.cancel_order(stop_order.id)
-                                    except: pass
-                                    api.submit_order(symbol=symbol, qty=remaining_qty, side="sell", type="stop", time_in_force="day", stop_price=entry_price)
-                                break
-                        except Exception as e:
-                            if "wash trade" in str(e).lower():
-                                pass
-                        time.sleep(1)
-                threading.Thread(target=monitor_tp, daemon=True).start()
                 return {"status":"long_opened","order_id":order.id}
 
+            # ----------------------------
             # SHORT ENTRY
             elif side=="short":
                 if current_side=="short": return {"status":"short_already_open"}
@@ -296,51 +293,40 @@ def execute_order(symbol, qty, side):
                 entry_price = current_price
 
                 tp_qty = min(3, qty)
-                tp_price = round(entry_price*(1-TP_PERCENT),2)
-                api.submit_order(symbol=symbol, qty=tp_qty, side="buy", type="limit", time_in_force="day", limit_price=tp_price)
+                tp_price_trigger = round(entry_price * 0.985, 2)  # 1.5% below entry
 
+                # Monitor TP and buy 3 shares at market when triggered
+                def monitor_tp_market_short():
+                    while True:
+                        last_trade = api.get_latest_trade(symbol)
+                        current_price = float(last_trade.price)
+                        if current_price <= tp_price_trigger:
+                            try:
+                                api.submit_order(symbol=symbol, qty=tp_qty, side="buy", type="market", time_in_force="day")
+                                break
+                            except Exception as e:
+                                print("TP market order error:", e)
+                        time.sleep(1)
+                threading.Thread(target=monitor_tp_market_short, daemon=True).start()
+
+                # Stop loss
                 sl_price = round(entry_price*(1+SL_PERCENT),2)
                 stop_order = api.submit_order(symbol=symbol, qty=qty, side="buy", type="stop", time_in_force="day", stop_price=sl_price)
 
                 open_positions[symbol] = {"side":"short","qty":qty,"entry_price":entry_price,"stop_order_id":stop_order.id,"tp_qty":tp_qty}
 
-                def monitor_tp_short():
-                    while True:
-                        try:
-                            orders = api.list_orders(status='all',symbol=symbol)
-                            tp_order = next((o for o in orders if o.side=="buy" and float(o.qty)==tp_qty and o.type=="limit"),None)
-                            if tp_order and float(tp_order.filled_qty)==tp_qty:
-                                remaining_qty = qty-tp_qty
-                                if remaining_qty>0:
-                                    try: api.cancel_order(stop_order.id)
-                                    except: pass
-                                    api.submit_order(symbol=symbol, qty=remaining_qty, side="buy", type="stop", time_in_force="day", stop_price=entry_price)
-                                break
-                        except Exception as e:
-                            if "wash trade" in str(e).lower():
-                                pass
-                        time.sleep(1)
-                threading.Thread(target=monitor_tp_short, daemon=True).start()
                 return {"status":"short_opened","order_id":order.id}
 
-            else: return {"error":f"Invalid side: {side}"}
+            else:
+                return {"error":f"Invalid side: {side}"}
 
         except Exception as e:
-            if "wash trade" in str(e).lower():
-                return {"status":"order_accepted_but_potential_wash_trade"}
             print(f"Execution error for {symbol} {side}:", e)
             return {"error": str(e)}
 
 # ----------------------------
-# Scheduled cleanup for pre-market and market-close
+# Scheduled cleanup
 def scheduled_cleanup():
-    """
-    Closes all positions and cancels all open orders:
-    - Before market open 9:30 ET
-    - Immediately after 9:30 ET
-    - Before market close 16:00 ET
-    - Immediately after 16:00 ET
-    """
     closed_930 = False
     closed_1600 = False
     while True:
@@ -387,4 +373,3 @@ threading.Thread(target=scheduled_cleanup, daemon=True).start()
 # ----------------------------
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT",5100)))
-
