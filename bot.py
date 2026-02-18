@@ -241,11 +241,12 @@ def execute_order(symbol, qty, side):
                     return {"status":"position_closed"}
                 else: return {"status":"no_position_to_close"}
 
-            # Use last quote to get a valid price
-            last_quote = api.get_last_quote(symbol)
-            current_price = float(last_quote.askprice if side=="long" else last_quote.bidprice)
+            # ----------------------------
+            # Use get_last_trade instead of get_last_quote
+            last_trade = api.get_last_trade(symbol)
+            current_price = float(last_trade.price)
 
-            # ---------------- LONG ENTRY ----------------
+            # LONG ENTRY
             if side=="long":
                 if current_side=="long": return {"status":"long_already_open"}
                 elif current_side=="short":
@@ -256,33 +257,35 @@ def execute_order(symbol, qty, side):
                 order = api.submit_order(symbol=symbol, qty=qty, side="buy", type="market", time_in_force="day")
                 entry_price = current_price
 
+                tp_qty = min(3, qty)
                 tp_price = round(entry_price*(1+TP_PERCENT),2)
-                api.submit_order(symbol=symbol, qty=3, side="sell", type="limit", time_in_force="day", limit_price=tp_price)
+                api.submit_order(symbol=symbol, qty=tp_qty, side="sell", type="limit", time_in_force="day", limit_price=tp_price)
 
                 sl_price = round(entry_price*(1-SL_PERCENT),2)
                 stop_order = api.submit_order(symbol=symbol, qty=qty, side="sell", type="stop", time_in_force="day", stop_price=sl_price)
 
-                open_positions[symbol] = {"side":"long","qty":qty,"entry_price":entry_price,"stop_order_id":stop_order.id,"tp_qty":3}
+                open_positions[symbol] = {"side":"long","qty":qty,"entry_price":entry_price,"stop_order_id":stop_order.id,"tp_qty":tp_qty}
 
                 def monitor_tp():
                     while True:
                         try:
                             orders = api.list_orders(status='all',symbol=symbol)
-                            tp_order = next((o for o in orders if o.side=="sell" and float(o.qty)==3 and o.type=="limit"),None)
-                            if tp_order and float(tp_order.filled_qty)==3:
-                                remaining_qty = qty-3
+                            tp_order = next((o for o in orders if o.side=="sell" and float(o.qty)==tp_qty and o.type=="limit"),None)
+                            if tp_order and float(tp_order.filled_qty)==tp_qty:
+                                remaining_qty = qty-tp_qty
                                 if remaining_qty>0:
                                     try: api.cancel_order(stop_order.id)
                                     except: pass
                                     api.submit_order(symbol=symbol, qty=remaining_qty, side="sell", type="stop", time_in_force="day", stop_price=entry_price)
                                 break
                         except Exception as e:
-                            if "wash trade" in str(e).lower(): pass
+                            if "wash trade" in str(e).lower():
+                                pass  # <-- suppress wash trade error
                         time.sleep(1)
                 threading.Thread(target=monitor_tp, daemon=True).start()
                 return {"status":"long_opened","order_id":order.id}
 
-            # ---------------- SHORT ENTRY ----------------
+            # SHORT ENTRY
             elif side=="short":
                 if current_side=="short": return {"status":"short_already_open"}
                 elif current_side=="long":
@@ -293,28 +296,30 @@ def execute_order(symbol, qty, side):
                 order = api.submit_order(symbol=symbol, qty=qty, side="sell", type="market", time_in_force="day")
                 entry_price = current_price
 
+                tp_qty = min(3, qty)
                 tp_price = round(entry_price*(1-TP_PERCENT),2)
-                api.submit_order(symbol=symbol, qty=3, side="buy", type="limit", time_in_force="day", limit_price=tp_price)
+                api.submit_order(symbol=symbol, qty=tp_qty, side="buy", type="limit", time_in_force="day", limit_price=tp_price)
 
                 sl_price = round(entry_price*(1+SL_PERCENT),2)
                 stop_order = api.submit_order(symbol=symbol, qty=qty, side="buy", type="stop", time_in_force="day", stop_price=sl_price)
 
-                open_positions[symbol] = {"side":"short","qty":qty,"entry_price":entry_price,"stop_order_id":stop_order.id,"tp_qty":3}
+                open_positions[symbol] = {"side":"short","qty":qty,"entry_price":entry_price,"stop_order_id":stop_order.id,"tp_qty":tp_qty}
 
                 def monitor_tp_short():
                     while True:
                         try:
                             orders = api.list_orders(status='all',symbol=symbol)
-                            tp_order = next((o for o in orders if o.side=="buy" and float(o.qty)==3 and o.type=="limit"),None)
-                            if tp_order and float(tp_order.filled_qty)==3:
-                                remaining_qty = qty-3
+                            tp_order = next((o for o in orders if o.side=="buy" and float(o.qty)==tp_qty and o.type=="limit"),None)
+                            if tp_order and float(tp_order.filled_qty)==tp_qty:
+                                remaining_qty = qty-tp_qty
                                 if remaining_qty>0:
                                     try: api.cancel_order(stop_order.id)
                                     except: pass
                                     api.submit_order(symbol=symbol, qty=remaining_qty, side="buy", type="stop", time_in_force="day", stop_price=entry_price)
                                 break
                         except Exception as e:
-                            if "wash trade" in str(e).lower(): pass
+                            if "wash trade" in str(e).lower():
+                                pass
                         time.sleep(1)
                 threading.Thread(target=monitor_tp_short, daemon=True).start()
                 return {"status":"short_opened","order_id":order.id}
@@ -331,5 +336,6 @@ def execute_order(symbol, qty, side):
 if __name__=="__main__":
     port = int(os.environ.get("PORT",5100))
     app.run(host="0.0.0.0", port=port)
+
 
 
