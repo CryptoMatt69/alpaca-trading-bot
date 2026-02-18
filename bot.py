@@ -2,7 +2,7 @@ import os
 from flask import Flask, request, jsonify, render_template_string
 import alpaca_trade_api as tradeapi
 from dotenv import load_dotenv
-from datetime import datetime
+from datetime import datetime, timedelta
 import pytz
 import threading
 import time
@@ -169,7 +169,6 @@ def api_stats():
 
         positions = api.list_positions()
         total_unrealized_pnl = 0.0
-
         for p in positions:
             side = "LONG" if float(p.qty) > 0 else "SHORT"
             qty = abs(float(p.qty))
@@ -177,7 +176,6 @@ def api_stats():
             current_price = float(p.current_price)
             unrealized_pnl = (current_price - entry)*qty if side=="LONG" else (entry - current_price)*qty
             total_unrealized_pnl += unrealized_pnl
-
             pos_list.append({
                 "symbol": p.symbol,
                 "qty": qty,
@@ -186,11 +184,31 @@ def api_stats():
                 "unrealized_pnl": f"${unrealized_pnl:,.2f}"
             })
 
-        pnl_str = f"${total_unrealized_pnl:,.2f}"  # <-- live PnL
-
-        trades = api.list_orders(status='all', limit=10)
-        trades.sort(key=lambda x: x.created_at, reverse=True)
+        # Realized PnL from closed trades today
+        tz = pytz.timezone("US/Eastern")
+        today_start = datetime.now(tz).replace(hour=0, minute=0, second=0, microsecond=0)
+        trades = api.list_orders(status='closed', limit=500)
+        total_realized_pnl = 0.0
         for t in trades:
+            if t.filled_at:
+                filled_dt = t.filled_at.astimezone(tz)
+                if filled_dt >= today_start:
+                    # Calculate PnL for filled orders (simplified)
+                    side = t.side
+                    filled_qty = float(t.filled_qty)
+                    filled_avg = float(t.filled_avg_price or 0)
+                    # Only for limit/market orders that are fully filled
+                    if side=="buy":
+                        total_realized_pnl -= filled_qty * filled_avg
+                    elif side=="sell":
+                        total_realized_pnl += filled_qty * filled_avg
+
+        total_daily_pnl = total_unrealized_pnl + total_realized_pnl
+        pnl_str = f"${total_daily_pnl:,.2f}"
+
+        trades_recent = api.list_orders(status='all', limit=10)
+        trades_recent.sort(key=lambda x: x.created_at, reverse=True)
+        for t in trades_recent:
             if float(t.filled_qty) > 0:
                 recent_trade = f"{t.symbol} {t.side.upper()} {t.filled_qty} @ ${t.filled_avg_price if t.filled_avg_price else '0.00'}"
                 break
@@ -233,7 +251,6 @@ def execute_order(symbol, qty, side):
             current_entry_price = current_pos.get("entry_price", 0)
             current_qty = current_pos.get("qty", 0)
 
-            # Handle close alerts
             if side in ["close_long","close_short"]:
                 if current_side and ((side=="close_long" and current_side=="long") or (side=="close_short" and current_side=="short")):
                     api.close_position(symbol)
