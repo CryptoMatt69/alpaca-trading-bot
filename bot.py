@@ -269,12 +269,28 @@ def execute_order(symbol, qty, side):
                     tiers.append(("sl", sl_prices, sl_qtys))
                 return tiers
 
+            # ----------------------------
+            # LONG LOGIC
             if side=="long":
-                if current_side=="long": return {"status":"long_already_open"}
+                if current_side=="long":
+                    return {"status":"long_already_open"}
                 elif current_side=="short":
-                    api.close_position(symbol)
-                    open_positions.pop(symbol, None)
-                    time.sleep(2)
+                    # Only close if a short is actually open
+                    try:
+                        api.get_position(symbol)
+                        api.close_position(symbol)
+                        open_positions.pop(symbol, None)
+                        # Wait until position is fully closed
+                        while True:
+                            try:
+                                api.get_position(symbol)
+                                time.sleep(1)
+                            except tradeapi.rest.APIError:
+                                break
+                        time.sleep(1)
+                    except tradeapi.rest.APIError:
+                        pass
+
                 api.submit_order(symbol=symbol, qty=qty, side="buy", type="market", time_in_force="day")
                 entry_price = current_price
                 tiers = tiered_tp_sl(entry_price, qty, "long")
@@ -282,7 +298,6 @@ def execute_order(symbol, qty, side):
                 def monitor_long():
                     sold_tp = 0
                     sold_sl = 0
-                    remaining_sl_qty = tiers[1][2].copy()
                     while True:
                         price_now = float(api.get_latest_trade(symbol).price)
                         # TP
@@ -300,10 +315,7 @@ def execute_order(symbol, qty, side):
                                     api.submit_order(symbol=symbol, qty=tiers[1][2][i], side="sell", type="market", time_in_force="day")
                                     tiers[1][2][i]=0
                                     sold_sl +=1
-                                    # move remaining SL to break-even if price recovers
-                                    remaining_sl_qty[i] = 0
                                 except: pass
-                        # Break-even adjustment
                         remaining_sl_total = sum(tiers[1][2])
                         if remaining_sl_total>0 and price_now>entry_price:
                             try:
@@ -317,12 +329,26 @@ def execute_order(symbol, qty, side):
                 open_positions[symbol] = {"side":"long","qty":qty,"entry_price":entry_price}
                 return {"status":"long_opened"}
 
+            # ----------------------------
+            # SHORT LOGIC
             elif side=="short":
-                if current_side=="short": return {"status":"short_already_open"}
+                if current_side=="short":
+                    return {"status":"short_already_open"}
                 elif current_side=="long":
-                    api.close_position(symbol)
-                    open_positions.pop(symbol, None)
-                    time.sleep(2)
+                    try:
+                        api.get_position(symbol)
+                        api.close_position(symbol)
+                        open_positions.pop(symbol, None)
+                        while True:
+                            try:
+                                api.get_position(symbol)
+                                time.sleep(1)
+                            except tradeapi.rest.APIError:
+                                break
+                        time.sleep(1)
+                    except tradeapi.rest.APIError:
+                        pass
+
                 api.submit_order(symbol=symbol, qty=qty, side="sell", type="market", time_in_force="day")
                 entry_price = current_price
                 tiers = tiered_tp_sl(entry_price, qty, "short")
@@ -330,7 +356,6 @@ def execute_order(symbol, qty, side):
                 def monitor_short():
                     sold_tp = 0
                     sold_sl = 0
-                    remaining_sl_qty = tiers[1][2].copy()
                     while True:
                         price_now = float(api.get_latest_trade(symbol).price)
                         # TP
@@ -348,9 +373,7 @@ def execute_order(symbol, qty, side):
                                     api.submit_order(symbol=symbol, qty=tiers[1][2][i], side="buy", type="market", time_in_force="day")
                                     tiers[1][2][i]=0
                                     sold_sl +=1
-                                    remaining_sl_qty[i]=0
                                 except: pass
-                        # Break-even adjustment
                         remaining_sl_total = sum(tiers[1][2])
                         if remaining_sl_total>0 and price_now<entry_price:
                             try:
