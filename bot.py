@@ -1,3 +1,4 @@
+
 import os
 from flask import Flask, request, jsonify, render_template_string
 import alpaca_trade_api as tradeapi
@@ -309,32 +310,58 @@ def execute_order(symbol, qty, side):
 
 # ----------------------------
 def monitor_long(symbol, tiers, entry_price, total_qty):
+    breakeven_activated = False
+    trailing_active = False
+    highest_price = entry_price
+
     while True:
         try:
             pos = api.get_position(symbol)
             current_price = float(pos.current_price)
             qty_remaining = int(pos.qty)
 
-            # Check TP tiers
-            for i, (tp_type, prices, qtys) in enumerate(tiers):
-                if tp_type=="tp":
+            if current_price > highest_price:
+                highest_price = current_price
+
+            for tp_type, prices, qtys in tiers:
+
+                # TAKE PROFITS
+                if tp_type == "tp":
                     for j, price_target in enumerate(prices):
                         if qtys[j] > 0 and current_price >= price_target:
                             close_qty = min(qtys[j], qty_remaining)
-                            if close_qty>0:
+                            if close_qty > 0:
                                 api.submit_order(symbol=symbol, qty=close_qty, side="sell", type="market", time_in_force="day")
-                                qtys[j] -= close_qty
                                 qty_remaining -= close_qty
+                                qtys[j] -= close_qty
 
-            # Check SL tiers
-                elif tp_type=="sl":
+                                # Activate breakeven after TP1
+                                if j == 0:
+                                    breakeven_activated = True
+
+                                # Activate trailing after TP2
+                                if j == 2:
+                                    trailing_active = True
+
+                # STOP LOSS
+                elif tp_type == "sl":
                     for j, price_target in enumerate(prices):
+
+                        # Move SL to breakeven
+                        if breakeven_activated:
+                            price_target = entry_price
+
+                        # Trailing stop for runner (0.5%)
+                        if trailing_active:
+                            trail_price = highest_price * (1 - 0.005)
+                            price_target = max(price_target, trail_price)
+
                         if qtys[j] > 0 and current_price <= price_target:
                             close_qty = min(qtys[j], qty_remaining)
-                            if close_qty>0:
+                            if close_qty > 0:
                                 api.submit_order(symbol=symbol, qty=close_qty, side="sell", type="market", time_in_force="day")
-                                qtys[j] -= close_qty
                                 qty_remaining -= close_qty
+                                qtys[j] -= close_qty
 
             if qty_remaining <= 0:
                 open_positions.pop(symbol, None)
@@ -345,34 +372,59 @@ def monitor_long(symbol, tiers, entry_price, total_qty):
             break
         except Exception as e:
             print(f"Monitor long error {symbol}: {e}")
+
         time.sleep(1)
 
+
 def monitor_short(symbol, tiers, entry_price, total_qty):
+    breakeven_activated = False
+    trailing_active = False
+    lowest_price = entry_price
+
     while True:
         try:
             pos = api.get_position(symbol)
             current_price = float(pos.current_price)
             qty_remaining = abs(int(pos.qty))
 
-            # Check TP tiers
-            for i, (tp_type, prices, qtys) in enumerate(tiers):
-                if tp_type=="tp":
+            if current_price < lowest_price:
+                lowest_price = current_price
+
+            for tp_type, prices, qtys in tiers:
+
+                # TAKE PROFITS
+                if tp_type == "tp":
                     for j, price_target in enumerate(prices):
                         if qtys[j] > 0 and current_price <= price_target:
                             close_qty = min(qtys[j], qty_remaining)
-                            if close_qty>0:
+                            if close_qty > 0:
                                 api.submit_order(symbol=symbol, qty=close_qty, side="buy", type="market", time_in_force="day")
-                                qtys[j] -= close_qty
                                 qty_remaining -= close_qty
+                                qtys[j] -= close_qty
 
-                elif tp_type=="sl":
+                                if j == 0:
+                                    breakeven_activated = True
+
+                                if j == 2:
+                                    trailing_active = True
+
+                # STOP LOSS
+                elif tp_type == "sl":
                     for j, price_target in enumerate(prices):
+
+                        if breakeven_activated:
+                            price_target = entry_price
+
+                        if trailing_active:
+                            trail_price = lowest_price * (1 + 0.005)
+                            price_target = min(price_target, trail_price)
+
                         if qtys[j] > 0 and current_price >= price_target:
                             close_qty = min(qtys[j], qty_remaining)
-                            if close_qty>0:
+                            if close_qty > 0:
                                 api.submit_order(symbol=symbol, qty=close_qty, side="buy", type="market", time_in_force="day")
-                                qtys[j] -= close_qty
                                 qty_remaining -= close_qty
+                                qtys[j] -= close_qty
 
             if qty_remaining <= 0:
                 open_positions.pop(symbol, None)
@@ -383,7 +435,9 @@ def monitor_short(symbol, tiers, entry_price, total_qty):
             break
         except Exception as e:
             print(f"Monitor short error {symbol}: {e}")
+
         time.sleep(1)
+
 
 # ----------------------------
 def scheduled_cleanup():
