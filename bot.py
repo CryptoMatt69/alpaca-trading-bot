@@ -241,8 +241,8 @@ def execute_order(symbol, qty, side):
                 else: return {"status":"no_position_to_close"}
 
             # ----------------------------
-            # FIX: use get_last_quote for live market price
-            last_quote = api.get_last_quote(symbol)
+            # FIX: use get_latest_quote for live market price
+            last_quote = api.get_latest_quote(symbol)
             current_price = float(last_quote.askprice if side=="long" else last_quote.bidprice)
 
             # LONG ENTRY
