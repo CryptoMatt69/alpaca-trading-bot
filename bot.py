@@ -243,7 +243,7 @@ def execute_order(symbol, qty, side):
             # ----------------------------
             # FIX: use get_latest_quote for live market price
             last_quote = api.get_latest_quote(symbol)
-            current_price = float(last_quote.askprice if side=="long" else last_quote.bidprice)
+            current_price = float(last_quote.ap if side=="long" else last_quote.bp)
 
             # LONG ENTRY
             if side=="long":
@@ -372,7 +372,3 @@ threading.Thread(target=scheduled_cleanup, daemon=True).start()
 if __name__=="__main__":
     port = int(os.environ.get("PORT",5100))
     app.run(host="0.0.0.0", port=port)
-
-
-
-
