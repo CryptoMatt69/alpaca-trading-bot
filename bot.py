@@ -18,7 +18,7 @@ BASE_URL = os.environ.get("APCA_API_BASE_URL")
 if not all([API_KEY, API_SECRET, BASE_URL]):
     raise ValueError("Alpaca API keys or base URL not set!")
 
-api = tradeapi.REST(API_KEY, API_SECRET, BASE_URL, api_version="v2")
+api = tradeapi.REST(API_KEY, API_SECRET, BASE_URL, api_version="v2")  # v3.2.0 compatible
 
 # ----------------------------
 # Track open positions
@@ -241,9 +241,9 @@ def execute_order(symbol, qty, side):
                 else: return {"status":"no_position_to_close"}
 
             # ----------------------------
-            # v3.2.0 compatible: get latest price using get_barset
-            bar = api.get_barset(symbol, "minute", limit=1)[symbol][0]
-            current_price = float(bar.c)
+            # FIX v3.2.0: get latest trade instead of ask/bid
+            last_trade = api.get_latest_trade(symbol)
+            current_price = float(last_trade.price)
 
             # LONG ENTRY
             if side=="long":
@@ -258,21 +258,20 @@ def execute_order(symbol, qty, side):
 
                 tp_qty = min(3, qty)
                 tp_price = round(entry_price*(1+TP_PERCENT),2)
-                tp_order = api.submit_order(symbol=symbol, qty=tp_qty, side="sell", type="limit", time_in_force="day", limit_price=tp_price)
+                api.submit_order(symbol=symbol, qty=tp_qty, side="sell", type="limit", time_in_force="day", limit_price=tp_price)
 
                 sl_price = round(entry_price*(1-SL_PERCENT),2)
                 stop_order = api.submit_order(symbol=symbol, qty=qty, side="sell", type="stop", time_in_force="day", stop_price=sl_price)
 
                 open_positions[symbol] = {"side":"long","qty":qty,"entry_price":entry_price,"stop_order_id":stop_order.id,"tp_qty":tp_qty}
 
-                # ----------------------------
                 def monitor_tp():
                     while True:
                         try:
                             orders = api.list_orders(status='all',symbol=symbol)
-                            filled_tp = sum(float(o.filled_qty) for o in orders if o.side=="sell" and o.type=="limit")
-                            if filled_tp >= tp_qty:
-                                remaining_qty = qty - tp_qty
+                            tp_order = next((o for o in orders if o.side=="sell" and float(o.qty)==tp_qty and o.type=="limit"),None)
+                            if tp_order and float(tp_order.filled_qty)==tp_qty:
+                                remaining_qty = qty-tp_qty
                                 if remaining_qty>0:
                                     try: api.cancel_order(stop_order.id)
                                     except: pass
@@ -298,7 +297,7 @@ def execute_order(symbol, qty, side):
 
                 tp_qty = min(3, qty)
                 tp_price = round(entry_price*(1-TP_PERCENT),2)
-                tp_order = api.submit_order(symbol=symbol, qty=tp_qty, side="buy", type="limit", time_in_force="day", limit_price=tp_price)
+                api.submit_order(symbol=symbol, qty=tp_qty, side="buy", type="limit", time_in_force="day", limit_price=tp_price)
 
                 sl_price = round(entry_price*(1+SL_PERCENT),2)
                 stop_order = api.submit_order(symbol=symbol, qty=qty, side="buy", type="stop", time_in_force="day", stop_price=sl_price)
@@ -309,9 +308,9 @@ def execute_order(symbol, qty, side):
                     while True:
                         try:
                             orders = api.list_orders(status='all',symbol=symbol)
-                            filled_tp = sum(float(o.filled_qty) for o in orders if o.side=="buy" and o.type=="limit")
-                            if filled_tp >= tp_qty:
-                                remaining_qty = qty - tp_qty
+                            tp_order = next((o for o in orders if o.side=="buy" and float(o.qty)==tp_qty and o.type=="limit"),None)
+                            if tp_order and float(tp_order.filled_qty)==tp_qty:
+                                remaining_qty = qty-tp_qty
                                 if remaining_qty>0:
                                     try: api.cancel_order(stop_order.id)
                                     except: pass
@@ -361,16 +360,12 @@ def scheduled_cleanup():
                         open_positions.pop(p.symbol, None)
                 except: pass
                 time.sleep(60)
-
-            time.sleep(10)
         except Exception as e:
-            print("Scheduled cleanup error:", e)
-            time.sleep(30)
+            print("[SCHEDULE ERROR]", e)
+        time.sleep(30)
 
 threading.Thread(target=scheduled_cleanup, daemon=True).start()
 
 # ----------------------------
-if __name__=="__main__":
-    port = int(os.environ.get("PORT",5100))
-    app.run(host="0.0.0.0", port=port)
-
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT",5100)))
