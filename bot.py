@@ -1,3 +1,4 @@
+import json
 import os
 from flask import Flask, request, jsonify, render_template_string
 import alpaca_trade_api as tradeapi
@@ -6,6 +7,7 @@ from datetime import datetime, timedelta
 import pytz
 import threading
 import time
+TRADES_FILE = "closed_trades.json"
 
 # ----------------------------
 load_dotenv()
@@ -33,7 +35,24 @@ api = tradeapi.REST(API_KEY, API_SECRET, BASE_URL, api_version="v2")
 #       }
 #   }
 # }
-open_positions = {}
+open_positions = {}  # active positions
+def load_trades():
+    try:
+        if os.path.exists(TRADES_FILE):
+            with open(TRADES_FILE, "r") as f:
+                return json.load(f)
+    except Exception as e:
+        print(f"Load trades error: {e}")
+    return []
+
+def save_trades():
+    try:
+        with open(TRADES_FILE, "w") as f:
+            json.dump(closed_trades, f, indent=2)
+    except Exception as e:
+        print(f"Save trades error: {e}")
+
+closed_trades = load_trades()  # load from file on startup
 locks = {}
 
 def get_lock(symbol):
@@ -118,10 +137,93 @@ def home():
     <div id="multi_chart_container"></div>
   </div>
   <div class="card">
-    <h2>Current Positions</h2>
+    <div style="display:flex; gap:0; margin-bottom:15px;">
+      <button id="tab_open" onclick="switchTab('open')"
+        style="flex:1; padding:10px; border:none; border-radius:10px 0 0 10px;
+               background:#ff2bd6; color:#fff; font-family:'Roboto Mono',monospace;
+               font-size:15px; font-weight:bold; cursor:pointer;">
+        Current Positions
+      </button>
+      <button id="tab_closed" onclick="switchTab('closed')"
+        style="flex:1; padding:10px; border:none; border-radius:0 10px 10px 0;
+               background:#333; color:#aaa; font-family:'Roboto Mono',monospace;
+               font-size:15px; font-weight:bold; cursor:pointer;">
+        Closed Trades
+      </button>
+    </div>
     <div id="positions_box">Loading...</div>
+    <div id="closed_box" style="display:none;">
+      <div style="margin-bottom:10px; display:flex; align-items:center; gap:10px;">
+        <label style="color:#aaa; font-size:14px;">Filter by date:</label>
+        <input type="date" id="trade_date_filter"
+          style="padding:5px 10px; border-radius:8px; border:none; font-size:14px; background:#1a1a1a; color:#fff;"
+          onchange="fetchClosed()" />
+        <button onclick="document.getElementById('trade_date_filter').value=''; fetchClosed();"
+          style="padding:5px 10px; border-radius:8px; border:none; background:#333; color:#aaa; cursor:pointer; font-size:13px;">
+          All Time
+        </button>
+      </div>
+      <div id="closed_list">Loading...</div>
+    </div>
   </div>
 </div>
+<script>
+  let activeTab = 'open';
+
+  function switchTab(tab) {
+    activeTab = tab;
+    if (tab === 'open') {
+      document.getElementById('positions_box').style.display = 'block';
+      document.getElementById('closed_box').style.display = 'none';
+      document.getElementById('tab_open').style.background = '#ff2bd6';
+      document.getElementById('tab_open').style.color = '#fff';
+      document.getElementById('tab_closed').style.background = '#333';
+      document.getElementById('tab_closed').style.color = '#aaa';
+    } else {
+      document.getElementById('positions_box').style.display = 'none';
+      document.getElementById('closed_box').style.display = 'block';
+      document.getElementById('tab_open').style.background = '#333';
+      document.getElementById('tab_open').style.color = '#aaa';
+      document.getElementById('tab_closed').style.background = '#ff2bd6';
+      document.getElementById('tab_closed').style.color = '#fff';
+      fetchClosed();
+    }
+  }
+
+  async function fetchClosed() {
+    try {
+      const dateVal = document.getElementById('trade_date_filter').value;
+      const url = dateVal ? `/api/closed_trades?date=${dateVal}` : '/api/closed_trades';
+      const res = await fetch(url);
+      const data = await res.json();
+      const box = document.getElementById('closed_list');
+      if (data.trades.length === 0) {
+        box.innerHTML = "<span style='color:#aaa'>No closed trades" + (dateVal ? " on " + dateVal : "") + "</span>";
+      } else {
+        box.innerHTML = data.trades.map(t => {
+          const pnl = parseFloat(t.pnl);
+          const color = pnl >= 0 ? "#00ff00" : "#ff3b3b";
+          const sign  = pnl >= 0 ? "+" : "";
+          return `<div style="margin-bottom:8px; padding:8px; background:rgba(255,255,255,0.04); border-radius:8px;">
+            <span style="color:#fff; font-weight:bold">${t.symbol}</span>
+            <span style="color:#aaa; margin:0 8px">${t.side}</span>
+            <span style="color:#aaa">${t.qty} shares</span>
+            <span style="color:#aaa; margin:0 8px">Entry: $${t.entry_price}</span>
+            <span style="color:#aaa">Exit: $${t.exit_price}</span>
+            <span style="color:${color}; font-weight:bold; margin-left:12px">${sign}$${Math.abs(pnl).toFixed(2)}</span>
+            <span style="color:#555; font-size:12px; margin-left:8px">${t.date || ""} ${t.closed_at}</span>
+          </div>`;
+        }).join('');
+        const total = data.trades.reduce((sum, t) => sum + parseFloat(t.pnl), 0);
+        const totalColor = total >= 0 ? "#00ff00" : "#ff3b3b";
+        const totalSign  = total >= 0 ? "+" : "";
+        box.innerHTML += `<div style="margin-top:12px; padding-top:10px; border-top:1px solid #333; font-weight:bold;">
+          Total P&L: <span style="color:${totalColor}">${totalSign}$${Math.abs(total).toFixed(2)}</span>
+        </div>`;
+      }
+    } catch(e) { console.error(e); }
+  }
+</script>
 <script>
   function generateIframeSrc(symbol) {
     return `https://s.tradingview.com/widgetembed/?frameElementId=tradingview_12345&symbol=NASDAQ%3A${symbol}&interval=15&hidesidetoolbar=1&symboledit=1&saveimage=1&toolbarbg=000000&studies=[]&theme=dark&style=1`;
@@ -233,6 +335,17 @@ def api_stats():
     })
 
 # ----------------------------
+@app.route("/api/closed_trades", methods=["GET"])
+def api_closed_trades():
+    from flask import request as req
+    date_filter = req.args.get("date")  # e.g. ?date=2026-02-19
+    if date_filter:
+        filtered = [t for t in closed_trades if t.get("date") == date_filter]
+    else:
+        filtered = closed_trades
+    return jsonify({"trades": list(reversed(filtered))})
+
+# ----------------------------
 @app.route("/webhook", methods=["POST"])
 def webhook():
     try:
@@ -313,9 +426,30 @@ def execute_close(symbol, alert_type):
             # Zero out this tier so duplicate alerts don't fire again
             tiers[tier_key] = 0
 
-            # Check if all tiers exhausted → remove position
+            # Check if all tiers exhausted → remove position and log it
             total_remaining = sum(tiers.values())
             if total_remaining <= 0:
+                try:
+                    last_trade = api.get_latest_trade(symbol)
+                    exit_price = float(last_trade.price)
+                except:
+                    exit_price = 0.0
+                entry_price = pos.get("entry_price", 0.0)
+                total_qty   = sum(TIER_QTYS.values())
+                pnl = (exit_price - entry_price) * total_qty if side == "long" else (entry_price - exit_price) * total_qty
+                est_now  = datetime.now(pytz.timezone("US/Eastern")).strftime("%I:%M %p EST")
+                est_date = datetime.now(pytz.timezone("US/Eastern")).strftime("%Y-%m-%d")
+                closed_trades.append({
+                    "symbol":      symbol,
+                    "side":        side.upper(),
+                    "qty":         total_qty,
+                    "entry_price": f"{entry_price:.2f}",
+                    "exit_price":  f"{exit_price:.2f}",
+                    "pnl":         f"{pnl:.2f}",
+                    "closed_at":   est_now,
+                    "date":        est_date
+                })
+                save_trades()
                 open_positions.pop(symbol, None)
 
             return {
@@ -407,7 +541,8 @@ def execute_order(symbol, qty, side):
 
 # ----------------------------
 def scheduled_cleanup():
-    """Sync open_positions with actual Alpaca positions every 60s."""
+    """Sync open_positions with actual Alpaca positions every 60s. Reset closed_trades daily."""
+    est = pytz.timezone("US/Eastern")
     while True:
         try:
             actual = {p.symbol for p in api.list_positions()}
@@ -415,11 +550,66 @@ def scheduled_cleanup():
                 if symbol not in actual:
                     print(f"Cleanup: removing stale position {symbol}")
                     open_positions.pop(symbol, None)
+
         except Exception as e:
             print("Cleanup error:", e)
         time.sleep(60)
 
 threading.Thread(target=scheduled_cleanup, daemon=True).start()
+
+# ----------------------------
+def sync_positions_on_startup():
+    """
+    On startup, load any existing Alpaca positions into open_positions
+    so TP/SL webhook alerts work immediately without needing a new entry.
+    Entry price is pulled from Alpaca. Tiers are reset to full since we
+    don't know what's already been partially closed.
+    """
+    try:
+        positions = api.list_positions()
+        for p in positions:
+            symbol = p.symbol
+            side   = "long" if float(p.qty) > 0 else "short"
+            entry  = float(p.avg_entry_price)
+            open_positions[symbol] = {
+                "side":        side,
+                "entry_price": entry,
+                "tiers":       dict(TIER_QTYS)
+            }
+            print(f"Startup sync: loaded {symbol} {side} @ ${entry}")
+        print(f"Startup sync complete. {len(open_positions)} position(s) loaded.")
+    except Exception as e:
+        print(f"Startup sync error: {e}")
+
+sync_positions_on_startup()
+
+# ----------------------------
+def eod_liquidation():
+    """
+    Every minute, check if it's 3:55 PM EST or later during a trading day.
+    If so, close all open positions via Alpaca and clear open_positions.
+    """
+    est = pytz.timezone("US/Eastern")
+    while True:
+        try:
+            now = datetime.now(est)
+            if now.weekday() < 5:  # Monday–Friday only
+                if (now.hour == 15 and now.minute >= 55) or now.hour == 16:
+                    positions = api.list_positions()
+                    if positions:
+                        print(f"EOD liquidation triggered at {now.strftime('%I:%M %p EST')}")
+                        for p in positions:
+                            try:
+                                api.close_position(p.symbol)
+                                open_positions.pop(p.symbol, None)
+                                print(f"EOD: closed {p.symbol}")
+                            except Exception as e:
+                                print(f"EOD close error {p.symbol}: {e}")
+        except Exception as e:
+            print(f"EOD liquidation error: {e}")
+        time.sleep(60)
+
+threading.Thread(target=eod_liquidation, daemon=True).start()
 
 # ----------------------------
 if __name__ == "__main__":
