@@ -1,4 +1,3 @@
-
 import os
 from flask import Flask, request, jsonify, render_template_string
 import alpaca_trade_api as tradeapi
@@ -214,14 +213,84 @@ def webhook():
         symbol = data.get("symbol")
         qty = int(data.get("qty",1))
         side = data.get("side","").lower()
-        if not symbol or not side: return jsonify({"error":"Missing symbol or side"}),400
+        if not symbol or not side: 
+            return jsonify({"error":"Missing symbol or side"}),400
+
+        # Standard buy/sell
         if side=="buy": side="long"
         elif side=="sell": side="short"
+        # Handle TP/SL closes
+        elif side in [
+            "close_long_tp1","close_long_tp2","close_long_tp3",
+            "close_short_tp1","close_short_tp2","close_short_tp3",
+            "close_long_sl1","close_long_sl2",
+            "close_short_sl1","close_short_sl2"
+        ]:
+            result = execute_close(symbol, side)
+            return jsonify(result)
+
         result = execute_order(symbol, qty, side)
         return jsonify(result)
     except Exception as e:
         print("WEBHOOK ERROR:", e)
         return jsonify({"error": str(e)}),500
+
+# ----------------------------
+def execute_close(symbol, alert_type):
+    lock = get_lock(symbol)
+    with lock:
+        try:
+            pos = open_positions.get(symbol)
+            if not pos:
+                return {"status":"no_open_position"}
+
+            side = pos["side"]
+            total_qty = pos["qty"]
+            entry_price = pos["entry_price"]
+
+            def tiered_tp_sl(entry_price, total_qty, side):
+                tiers = {"tp":[2,2,max(total_qty-4,0)],"sl":[3,2]}
+                prices = {}
+                if side=="long":
+                    prices["tp"] = [round(entry_price*(1+TP_PERCENT[0]),2),
+                                    round(entry_price*(1+TP_PERCENT[1]),2),
+                                    round(entry_price*(1+TP_PERCENT[2]),2)]
+                    prices["sl"] = [round(entry_price*(1-SL_PERCENT[0]),2),
+                                    round(entry_price*(1-SL_PERCENT[1]),2)]
+                else:
+                    prices["tp"] = [round(entry_price*(1-TP_PERCENT[0]),2),
+                                    round(entry_price*(1-TP_PERCENT[1]),2),
+                                    round(entry_price*(1-TP_PERCENT[2]),2)]
+                    prices["sl"] = [round(entry_price*(1+SL_PERCENT[0]),2),
+                                    round(entry_price*(1+SL_PERCENT[1]),2)]
+                return prices, tiers
+
+            prices, qtys = tiered_tp_sl(entry_price, total_qty, side)
+
+            if "tp" in alert_type:
+                tier_num = int(alert_type[-1])-1
+                close_qty = min(qtys["tp"][tier_num], total_qty)
+                if close_qty > 0:
+                    order_side = "sell" if side=="long" else "buy"
+                    api.submit_order(symbol=symbol, qty=close_qty, side=order_side, type="market", time_in_force="day")
+                    qtys["tp"][tier_num] -= close_qty
+                    pos["qty"] -= close_qty
+            elif "sl" in alert_type:
+                tier_num = int(alert_type[-1])-1
+                close_qty = min(qtys["sl"][tier_num], total_qty)
+                if close_qty > 0:
+                    order_side = "sell" if side=="long" else "buy"
+                    api.submit_order(symbol=symbol, qty=close_qty, side=order_side, type="market", time_in_force="day")
+                    qtys["sl"][tier_num] -= close_qty
+                    pos["qty"] -= close_qty
+
+            if pos["qty"] <= 0:
+                open_positions.pop(symbol, None)
+
+            return {"status":"closed","alert_type":alert_type,"symbol":symbol,"closed_qty":close_qty}
+        except Exception as e:
+            print(f"Execute close error {symbol}: {e}")
+            return {"error": str(e)}
 
 # ----------------------------
 def execute_order(symbol, qty, side):
@@ -269,7 +338,7 @@ def execute_order(symbol, qty, side):
                         while True:
                             try: api.get_position(symbol); time.sleep(0.5)
                             except tradeapi.rest.APIError: break
-                        time.sleep(2)  # <-- safety buffer
+                        time.sleep(2)
                     except tradeapi.rest.APIError: pass
 
                 api.submit_order(symbol=symbol, qty=qty, side="buy", type="market", time_in_force="day")
@@ -277,7 +346,7 @@ def execute_order(symbol, qty, side):
                 tiers = tiered_tp_sl(entry_price, qty, "long")
                 threading.Thread(target=lambda: monitor_long(symbol, tiers, entry_price, qty), daemon=True).start()
                 open_positions[symbol] = {"side":"long","qty":qty,"entry_price":entry_price}
-                return {"status":"long_opened"}
+                return {"status":"long_ordered"}
 
             # ----------------------------
             # Handle SHORT
@@ -291,7 +360,7 @@ def execute_order(symbol, qty, side):
                         while True:
                             try: api.get_position(symbol); time.sleep(0.5)
                             except tradeapi.rest.APIError: break
-                        time.sleep(2)  # <-- safety buffer
+                        time.sleep(2)
                     except tradeapi.rest.APIError: pass
 
                 api.submit_order(symbol=symbol, qty=qty, side="sell", type="market", time_in_force="day")
@@ -299,173 +368,58 @@ def execute_order(symbol, qty, side):
                 tiers = tiered_tp_sl(entry_price, qty, "short")
                 threading.Thread(target=lambda: monitor_short(symbol, tiers, entry_price, qty), daemon=True).start()
                 open_positions[symbol] = {"side":"short","qty":qty,"entry_price":entry_price}
-                return {"status":"short_opened"}
-
-            else:
-                return {"error":f"Invalid side: {side}"}
-
+                return {"status":"short_ordered"}
         except Exception as e:
-            print(f"Execution error for {symbol} {side}:", e)
+            print(f"Execute order error {symbol}: {e}")
             return {"error": str(e)}
 
 # ----------------------------
-def monitor_long(symbol, tiers, entry_price, total_qty):
-    breakeven_activated = False
-    trailing_active = False
-    highest_price = entry_price
-
+def monitor_long(symbol, tiers, entry_price, qty):
     while True:
         try:
-            pos = api.get_position(symbol)
-            current_price = float(pos.current_price)
-            qty_remaining = int(pos.qty)
+            last_trade = api.get_latest_trade(symbol)
+            current_price = float(last_trade.price)
+            for tier_type, prices, tier_qtys in tiers:
+                for i, price in enumerate(prices):
+                    if tier_qtys[i]>0:
+                        if (tier_type=="tp" and current_price>=price) or (tier_type=="sl" and current_price<=price):
+                            api.submit_order(symbol=symbol, qty=tier_qtys[i], side="sell", type="market", time_in_force="day")
+                            tier_qtys[i]=0
+                            open_positions[symbol]["qty"]-=tier_qtys[i]
+            if open_positions[symbol]["qty"]<=0: break
+            time.sleep(1)
+        except: break
 
-            if current_price > highest_price:
-                highest_price = current_price
-
-            for tp_type, prices, qtys in tiers:
-
-                # TAKE PROFITS
-                if tp_type == "tp":
-                    for j, price_target in enumerate(prices):
-                        if qtys[j] > 0 and current_price >= price_target:
-                            close_qty = min(qtys[j], qty_remaining)
-                            if close_qty > 0:
-                                api.submit_order(symbol=symbol, qty=close_qty, side="sell", type="market", time_in_force="day")
-                                qty_remaining -= close_qty
-                                qtys[j] -= close_qty
-
-                                # Activate breakeven after TP1
-                                if j == 0:
-                                    breakeven_activated = True
-
-                                # Activate trailing after TP2
-                                if j == 2:
-                                    trailing_active = True
-
-                # STOP LOSS
-                elif tp_type == "sl":
-                    for j, price_target in enumerate(prices):
-
-                        # Move SL to breakeven
-                        if breakeven_activated:
-                            price_target = entry_price
-
-                        # Trailing stop for runner (0.5%)
-                        if trailing_active:
-                            trail_price = highest_price * (1 - 0.005)
-                            price_target = max(price_target, trail_price)
-
-                        if qtys[j] > 0 and current_price <= price_target:
-                            close_qty = min(qtys[j], qty_remaining)
-                            if close_qty > 0:
-                                api.submit_order(symbol=symbol, qty=close_qty, side="sell", type="market", time_in_force="day")
-                                qty_remaining -= close_qty
-                                qtys[j] -= close_qty
-
-            if qty_remaining <= 0:
-                open_positions.pop(symbol, None)
-                break
-
-        except tradeapi.rest.APIError:
-            open_positions.pop(symbol, None)
-            break
-        except Exception as e:
-            print(f"Monitor long error {symbol}: {e}")
-
-        time.sleep(1)
-
-
-def monitor_short(symbol, tiers, entry_price, total_qty):
-    breakeven_activated = False
-    trailing_active = False
-    lowest_price = entry_price
-
+def monitor_short(symbol, tiers, entry_price, qty):
     while True:
         try:
-            pos = api.get_position(symbol)
-            current_price = float(pos.current_price)
-            qty_remaining = abs(int(pos.qty))
-
-            if current_price < lowest_price:
-                lowest_price = current_price
-
-            for tp_type, prices, qtys in tiers:
-
-                # TAKE PROFITS
-                if tp_type == "tp":
-                    for j, price_target in enumerate(prices):
-                        if qtys[j] > 0 and current_price <= price_target:
-                            close_qty = min(qtys[j], qty_remaining)
-                            if close_qty > 0:
-                                api.submit_order(symbol=symbol, qty=close_qty, side="buy", type="market", time_in_force="day")
-                                qty_remaining -= close_qty
-                                qtys[j] -= close_qty
-
-                                if j == 0:
-                                    breakeven_activated = True
-
-                                if j == 2:
-                                    trailing_active = True
-
-                # STOP LOSS
-                elif tp_type == "sl":
-                    for j, price_target in enumerate(prices):
-
-                        if breakeven_activated:
-                            price_target = entry_price
-
-                        if trailing_active:
-                            trail_price = lowest_price * (1 + 0.005)
-                            price_target = min(price_target, trail_price)
-
-                        if qtys[j] > 0 and current_price >= price_target:
-                            close_qty = min(qtys[j], qty_remaining)
-                            if close_qty > 0:
-                                api.submit_order(symbol=symbol, qty=close_qty, side="buy", type="market", time_in_force="day")
-                                qty_remaining -= close_qty
-                                qtys[j] -= close_qty
-
-            if qty_remaining <= 0:
-                open_positions.pop(symbol, None)
-                break
-
-        except tradeapi.rest.APIError:
-            open_positions.pop(symbol, None)
-            break
-        except Exception as e:
-            print(f"Monitor short error {symbol}: {e}")
-
-        time.sleep(1)
-
+            last_trade = api.get_latest_trade(symbol)
+            current_price = float(last_trade.price)
+            for tier_type, prices, tier_qtys in tiers:
+                for i, price in enumerate(prices):
+                    if tier_qtys[i]>0:
+                        if (tier_type=="tp" and current_price<=price) or (tier_type=="sl" and current_price>=price):
+                            api.submit_order(symbol=symbol, qty=tier_qtys[i], side="buy", type="market", time_in_force="day")
+                            tier_qtys[i]=0
+                            open_positions[symbol]["qty"]-=tier_qtys[i]
+            if open_positions[symbol]["qty"]<=0: break
+            time.sleep(1)
+        except: break
 
 # ----------------------------
 def scheduled_cleanup():
-    closed_930 = False
-    closed_1600 = False
     while True:
         try:
-            now = datetime.now(pytz.timezone("US/Eastern"))
-            hm = now.strftime("%H:%M")
-            if hm in ["09:28","09:29","09:30","09:31"] and not closed_930:
-                for o in api.list_orders(status="open"): api.cancel_order(o.id)
-                for p in api.list_positions():
-                    api.close_position(p.symbol)
-                    open_positions.pop(p.symbol, None)
-                closed_930 = True
-            if hm not in ["09:28","09:29","09:30","09:31"]: closed_930 = False
-            if hm in ["15:58","15:59","16:00","16:01"] and not closed_1600:
-                for o in api.list_orders(status="open"): api.cancel_order(o.id)
-                for p in api.list_positions():
-                    api.close_position(p.symbol)
-                    open_positions.pop(p.symbol, None)
-                closed_1600 = True
-            if hm not in ["15:58","15:59","16:00","16:01"]: closed_1600 = False
-        except Exception as e: print("[SCHEDULE ERROR]", e)
-        time.sleep(20)
+            for symbol in list(open_positions.keys()):
+                try: api.get_position(symbol)
+                except tradeapi.rest.APIError:
+                    open_positions.pop(symbol, None)
+        except: pass
+        time.sleep(60)
 
 threading.Thread(target=scheduled_cleanup, daemon=True).start()
 
 # ----------------------------
-if __name__ == "__main__":
+if __name__=="__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT",5100)))
+
