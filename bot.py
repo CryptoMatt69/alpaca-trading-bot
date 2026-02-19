@@ -61,6 +61,26 @@ def get_lock(symbol):
     return locks[symbol]
 
 # ----------------------------
+def log_closed_trade(symbol, side, qty, entry_price, exit_price, reason=""):
+    """Log a closed trade to closed_trades and save to disk."""
+    pnl = (exit_price - entry_price) * qty if side == "long" else (entry_price - exit_price) * qty
+    est = pytz.timezone("US/Eastern")
+    now = datetime.now(est)
+    closed_trades.append({
+        "symbol":      symbol,
+        "side":        side.upper(),
+        "qty":         qty,
+        "entry_price": f"{entry_price:.2f}",
+        "exit_price":  f"{exit_price:.2f}",
+        "pnl":         f"{pnl:.2f}",
+        "closed_at":   now.strftime("%I:%M %p EST"),
+        "date":        now.strftime("%Y-%m-%d"),
+        "reason":      reason
+    })
+    save_trades()
+    print(f"Logged closed trade: {symbol} {side.upper()} {qty}sh entry={entry_price:.2f} exit={exit_price:.2f} pnl={pnl:.2f} ({reason})")
+
+# ----------------------------
 TP_PERCENT = [0.015, 0.02, 0.03]   # 1.5%, 2%, 3%
 SL_PERCENT = [0.006, 0.01]         # 0.6%, 1%
 
@@ -212,6 +232,7 @@ def home():
             <span style="color:#aaa">Exit: $${t.exit_price}</span>
             <span style="color:${color}; font-weight:bold; margin-left:12px">${sign}$${Math.abs(pnl).toFixed(2)}</span>
             <span style="color:#555; font-size:12px; margin-left:8px">${t.date || ""} ${t.closed_at}</span>
+            ${t.reason ? `<span style="color:#666; font-size:11px; margin-left:6px">[${t.reason}]</span>` : ""}
           </div>`;
         }).join('');
         const total = data.trades.reduce((sum, t) => sum + parseFloat(t.pnl), 0);
@@ -436,20 +457,7 @@ def execute_close(symbol, alert_type):
                     exit_price = 0.0
                 entry_price = pos.get("entry_price", 0.0)
                 total_qty   = sum(TIER_QTYS.values())
-                pnl = (exit_price - entry_price) * total_qty if side == "long" else (entry_price - exit_price) * total_qty
-                est_now  = datetime.now(pytz.timezone("US/Eastern")).strftime("%I:%M %p EST")
-                est_date = datetime.now(pytz.timezone("US/Eastern")).strftime("%Y-%m-%d")
-                closed_trades.append({
-                    "symbol":      symbol,
-                    "side":        side.upper(),
-                    "qty":         total_qty,
-                    "entry_price": f"{entry_price:.2f}",
-                    "exit_price":  f"{exit_price:.2f}",
-                    "pnl":         f"{pnl:.2f}",
-                    "closed_at":   est_now,
-                    "date":        est_date
-                })
-                save_trades()
+                log_closed_trade(symbol, side, total_qty, entry_price, exit_price, reason=f"TP/SL ({tier_key})")
                 open_positions.pop(symbol, None)
 
             return {
@@ -545,11 +553,29 @@ def scheduled_cleanup():
     est = pytz.timezone("US/Eastern")
     while True:
         try:
-            actual = {p.symbol for p in api.list_positions()}
+            actual_positions = {p.symbol: p for p in api.list_positions()}
+            actual = set(actual_positions.keys())
             for symbol in list(open_positions.keys()):
                 if symbol not in actual:
-                    print(f"Cleanup: removing stale position {symbol}")
-                    open_positions.pop(symbol, None)
+                    print(f"Cleanup: removing stale position {symbol} (manually closed or SL hit)")
+                    pos = open_positions.pop(symbol, {})
+                    # Try to get exit price from recent orders
+                    try:
+                        orders = api.list_orders(status="filled", limit=20)
+                        orders.sort(key=lambda x: x.filled_at, reverse=True)
+                        exit_price = None
+                        for o in orders:
+                            if o.symbol == symbol and o.filled_avg_price:
+                                exit_price = float(o.filled_avg_price)
+                                break
+                        if exit_price is None:
+                            exit_price = pos.get("entry_price", 0.0)
+                        entry_price = pos.get("entry_price", 0.0)
+                        side = pos.get("side", "long")
+                        qty = sum(TIER_QTYS.values())
+                        log_closed_trade(symbol, side, qty, entry_price, exit_price, reason="manual/SL")
+                    except Exception as e:
+                        print(f"Cleanup log error {symbol}: {e}")
 
         except Exception as e:
             print("Cleanup error:", e)
@@ -600,8 +626,14 @@ def eod_liquidation():
                         print(f"EOD liquidation triggered at {now.strftime('%I:%M %p EST')}")
                         for p in positions:
                             try:
+                                pos = open_positions.get(p.symbol, {})
+                                entry_price = pos.get("entry_price", float(p.avg_entry_price))
+                                side = pos.get("side", "long" if float(p.qty) > 0 else "short")
+                                qty = abs(float(p.qty))
+                                exit_price = float(p.current_price)
                                 api.close_position(p.symbol)
                                 open_positions.pop(p.symbol, None)
+                                log_closed_trade(p.symbol, side, qty, entry_price, exit_price, reason="EOD")
                                 print(f"EOD: closed {p.symbol}")
                             except Exception as e:
                                 print(f"EOD close error {p.symbol}: {e}")
