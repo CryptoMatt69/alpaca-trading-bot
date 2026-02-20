@@ -607,7 +607,10 @@ def sync_positions_on_startup():
     except Exception as e:
         print(f"Startup sync error: {e}")
 
+# Call it on startup to load existing positions
 sync_positions_on_startup()
+
+# NO TP/SL monitor thread — alerts from TradingView are the source of truth
 
 # ----------------------------
 def eod_liquidation():
