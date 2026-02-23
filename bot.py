@@ -295,9 +295,19 @@ def home():
         posBox.innerHTML = "No open positions";
       } else {
         posBox.innerHTML = data.positions.map(p => {
-          const color = p.side === "LONG" ? "#00ff00" : "#ff3b3b";
-          return `<span style="color:${color}; font-weight:bold">${p.symbol}: ${p.side} ${p.qty} @ $${p.avg_entry_price} (${p.unrealized_pnl})</span>`;
-        }).join('<br>');
+  // Color the side only
+  const sideColor = p.side === "LONG" ? "#00ff00" : "#ff3b3b";
+
+  // Color the unrealized PnL
+  const pnlValue = parseFloat(p.unrealized_pnl.replace('$','').replace(',',''));
+  const pnlColor = pnlValue >= 0 ? "#00ff00" : "#ff3b3b";
+  const pnlSign  = pnlValue >= 0 ? "+" : "";
+
+  return `<span style="color:#fff; font-weight:bold">${p.symbol}:</span> 
+          <span style="color:${sideColor}; font-weight:bold">${p.side}</span> 
+          <span style="color:#fff">${p.qty} @ $${p.avg_entry_price}</span> 
+          <span style="color:${pnlColor}; font-weight:bold">(${pnlSign}${p.unrealized_pnl})</span>`;
+}).join('<br>');
       }
     } catch(e) { console.error(e); }
   }
@@ -406,6 +416,7 @@ def execute_close(symbol, alert_type):
     Called by TradingView TP/SL alerts.
     Reads the remaining qty for the triggered tier from open_positions,
     submits the close order, then decrements the tier so repeat alerts are no-ops.
+    Logs every close (partial or full) to closed_trades.json with PnL and hold time.
     """
     lock = get_lock(symbol)
     with lock:
@@ -416,13 +427,12 @@ def execute_close(symbol, alert_type):
 
             side   = pos["side"]
             tiers  = pos["tiers"]
+            entry_price = pos.get("entry_price", 0.0)
+            entry_time  = pos.get("entry_time", datetime.now(pytz.timezone("US/Eastern")))
 
-            # Map alert_type -> tier key
-            # e.g. "close_long_tp1" -> "tp1", "close_short_sl2" -> "sl2"
-            tier_key = alert_type.split("_")[-1] + alert_type.split("_")[-2][-1]
-            # Simpler parse: last two segments give e.g. "tp1", "sl2"
-            parts    = alert_type.split("_")   # ["close","long","tp1"] or ["close","short","sl2"]
-            tier_key = parts[-1]               # "tp1", "tp2", "tp3", "sl1", "sl2"
+            # Parse alert type -> tier key
+            parts = alert_type.split("_")   # ["close","long","tp1"] etc
+            tier_key = parts[-1]            # "tp1", "tp2", "tp3", "sl1", "sl2"
 
             close_qty = tiers.get(tier_key, 0)
             if close_qty <= 0:
@@ -436,6 +446,7 @@ def execute_close(symbol, alert_type):
 
             order_side = "sell" if side == "long" else "buy"
 
+            # Submit the market close order
             api.submit_order(
                 symbol=symbol,
                 qty=close_qty,
@@ -447,17 +458,40 @@ def execute_close(symbol, alert_type):
             # Zero out this tier so duplicate alerts don't fire again
             tiers[tier_key] = 0
 
-            # Check if all tiers exhausted → remove position and log it
+            # Get exit price
+            try:
+                last_trade = api.get_latest_trade(symbol)
+                exit_price = float(last_trade.price)
+            except:
+                exit_price = 0.0
+
+            # Compute PnL
+            pnl_dollar = (exit_price - entry_price) * close_qty if side == "long" else (entry_price - exit_price) * close_qty
+            pnl_percent = (exit_price - entry_price) / entry_price * 100 if side == "long" else (entry_price - exit_price) / entry_price * 100
+
+            # How long held
+            held_seconds = int((datetime.now(pytz.timezone("US/Eastern")) - entry_time).total_seconds())
+
+            # Log every partial close
+            closed_trades.append({
+                "symbol": symbol,
+                "side": side.upper(),
+                "qty": close_qty,
+                "entry_price": f"{entry_price:.2f}",
+                "exit_price": f"{exit_price:.2f}",
+                "pnl": f"{pnl_dollar:.2f}",
+                "pnl_percent": f"{pnl_percent:.2f}",
+                "held_seconds": held_seconds,
+                "closed_at": datetime.now(pytz.timezone("US/Eastern")).strftime("%I:%M %p EST"),
+                "date": datetime.now(pytz.timezone("US/Eastern")).strftime("%Y-%m-%d"),
+                "reason": tier_key
+            })
+            save_trades()
+            print(f"[CLOSE] {symbol} {tier_key} qty={close_qty} PnL=${pnl_dollar:.2f} ({pnl_percent:.2f}%) held {held_seconds}s")
+
+            # If all tiers exhausted, remove position
             total_remaining = sum(tiers.values())
             if total_remaining <= 0:
-                try:
-                    last_trade = api.get_latest_trade(symbol)
-                    exit_price = float(last_trade.price)
-                except:
-                    exit_price = 0.0
-                entry_price = pos.get("entry_price", 0.0)
-                total_qty   = sum(TIER_QTYS.values())
-                log_closed_trade(symbol, side, total_qty, entry_price, exit_price, reason=f"TP/SL ({tier_key})")
                 open_positions.pop(symbol, None)
 
             return {
@@ -465,7 +499,7 @@ def execute_close(symbol, alert_type):
                 "symbol": symbol,
                 "tier": tier_key,
                 "qty_closed": close_qty,
-                "remaining_qty": total_remaining - close_qty if total_remaining > close_qty else 0
+                "remaining_qty": total_remaining
             }
 
         except Exception as e:
@@ -516,6 +550,7 @@ def execute_order(symbol, qty, side):
                 open_positions[symbol] = {
                     "side":        "long",
                     "entry_price": current_price,
+                    "entry_time": datetime.now(pytz.timezone("US/Eastern")),
                     "tiers":       new_tiers
                 }
                 return {"status": "long_ordered", "symbol": symbol,
@@ -533,6 +568,7 @@ def execute_order(symbol, qty, side):
                 open_positions[symbol] = {
                     "side":        "short",
                     "entry_price": current_price,
+                    "entry_time": datetime.now(pytz.timezone("US/Eastern")),
                     "tiers":       new_tiers
                 }
                 return {"status": "short_ordered", "symbol": symbol,
