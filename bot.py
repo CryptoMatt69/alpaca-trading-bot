@@ -31,7 +31,7 @@ api = tradeapi.REST(API_KEY, API_SECRET, BASE_URL, api_version="v2")
 #       "entry_price": 150.00,
 #       "tiers": {
 #           "tp1": 5, "tp2": 5, "tp3": 5,   # qty remaining per tier
-#           "sl1": 5, "sl2": 5
+#           "sl1": 8, "sl2": 7
 #       }
 #   }
 # }
@@ -90,8 +90,8 @@ TIER_QTYS = {
     "tp1": 5,
     "tp2": 5,
     "tp3": 5,
-    "sl1": 5,
-    "sl2": 5,
+    "sl1": 8,
+    "sl2": 7,
 }
 
 # ----------------------------
