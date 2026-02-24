@@ -507,12 +507,13 @@ def execute_close(symbol, alert_type):
             return {"error": str(e)}
 
 # ----------------------------
-def def execute_order(symbol, qty, side):
+def execute_order(symbol, qty, side):
     lock = get_lock(symbol)
     with lock:
         try:
             current_pos  = open_positions.get(symbol, {})
             current_side = current_pos.get("side")
+    
 
             last_trade    = api.get_latest_trade(symbol)
             current_price = float(last_trade.price)
