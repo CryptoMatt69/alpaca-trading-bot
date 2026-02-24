@@ -129,7 +129,8 @@ def home():
   <div class="card">
     <h2>Account Overview</h2>
     <div class="stat">Balance: <span id="balance">$0.00</span></div>
-    <div class="stat">Current Positions PnL: <span id="pnl">$0.00</span></div>
+    <div class="stat">Current Positions P&L: <span id="pnl">$0.00</span></div>
+    <div class="stat">Daily P&L: <span id="daily_pnl">$0.00</span></div>
     <div class="stat">Recent Trade: <span id="recent_trade">N/A</span></div>
     <div class="stat">Trading Session: <span id="session_status">Loading...</span></div>
     <div class="message-box">Automated trades, Proven results.</div>
@@ -247,6 +248,21 @@ def home():
         box.innerHTML += `<div style="margin-top:12px; padding-top:10px; border-top:1px solid #333; font-weight:bold;">
           Total P&L: <span style="color:${totalColor}">${totalSign}$${Math.abs(total).toFixed(2)}</span>
         </div>`;
+        
+        // --- DAILY P&L ---
+      const est = new Date().toLocaleString("en-US", {timeZone: "America/New_York"});
+      const today = new Date(est).toISOString().split("T")[0]; // YYYY-MM-DD
+      const dailyTrades = data.trades.filter(t => t.date === today);
+      const dailyTotal = dailyTrades.reduce((sum, t) => sum + parseFloat(t.pnl), 0);
+      const dailyColor = dailyTotal >= 0 ? "#00ff00" : "#ff3b3b";
+      const dailySign  = dailyTotal >= 0 ? "+" : "";
+      document.getElementById("daily_pnl").innerText = `${dailySign}$${Math.abs(dailyTotal).toFixed(2)}`;
+      document.getElementById("daily_pnl").style.color = dailyColor;
+    }
+  } catch(e) {
+    console.error(e);
+  }
+}
       }
     } catch(e) { console.error(e); }
   }
