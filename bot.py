@@ -369,11 +369,24 @@ def api_stats():
 @app.route("/api/closed_trades", methods=["GET"])
 def api_closed_trades():
     from flask import request as req
-    date_filter = req.args.get("date")  # e.g. ?date=2026-02-19
+    date_filter = req.args.get("date")  # e.g. ?date=2026-02-23
+
+    # Reload from disk every request to ensure all trades are visible
+    global closed_trades
+    try:
+        if os.path.exists(TRADES_FILE):
+            with open(TRADES_FILE, "r") as f:
+                closed_trades = json.load(f)
+    except Exception as e:
+        print(f"Error loading trades from file: {e}")
+        closed_trades = []
+
     if date_filter:
         filtered = [t for t in closed_trades if t.get("date") == date_filter]
     else:
         filtered = closed_trades
+
+    # Reverse so newest shows first
     return jsonify({"trades": list(reversed(filtered))})
 
 # ----------------------------
