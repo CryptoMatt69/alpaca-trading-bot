@@ -507,7 +507,7 @@ def execute_close(symbol, alert_type):
             return {"error": str(e)}
 
 # ----------------------------
-def execute_order(symbol, qty, side):
+def def execute_order(symbol, qty, side):
     lock = get_lock(symbol)
     with lock:
         try:
@@ -518,39 +518,38 @@ def execute_order(symbol, qty, side):
             current_price = float(last_trade.price)
 
             # Build fresh tier qty tracking for this new position
-            # Matches Pine Script: TP1=5, TP2=5, TP3=5 (qty per exit block)
-            # Adjust TIER_QTYS at the top of the file if your Pine qty values change.
-            new_tiers = dict(TIER_QTYS)  # {"tp1":5, "tp2":5, "tp3":5, "sl1":5, "sl2":5}
+            new_tiers = dict(TIER_QTYS)
 
             def flip_position(close_side_label):
-    """Close existing opposite position, log it as a closed trade, then wait for it to clear."""
-        try:
-            pos = open_positions.get(symbol)
-            if pos:
-                side = pos.get("side")
-                entry_price = pos.get("entry_price", 0.0)
-                qty = sum(pos.get("tiers", {}).values())
-                # get current market price for exit
+                """Close existing opposite position, log it as a closed trade, then wait for it to clear."""
                 try:
-                    last_trade = api.get_latest_trade(symbol)
-                    exit_price = float(last_trade.price)
-                except:
-                    exit_price = entry_price
-                # log it as a closed trade
-                log_closed_trade(symbol, side, qty, entry_price, exit_price, reason=f"flip_{close_side_label}")
-                open_positions.pop(symbol, None)
+                    pos = open_positions.get(symbol)
+                    if pos:
+                        side = pos.get("side")
+                        entry_price = pos.get("entry_price", 0.0)
+                        qty_total = sum(pos.get("tiers", {}).values())
+                        # get current market price for exit
+                        try:
+                            last_trade = api.get_latest_trade(symbol)
+                            exit_price = float(last_trade.price)
+                        except:
+                            exit_price = entry_price
+                        # log it as a closed trade
+                        log_closed_trade(symbol, side, qty_total, entry_price, exit_price, reason=f"flip_{close_side_label}")
+                        open_positions.pop(symbol, None)
 
-            api.get_position(symbol)
-            api.close_position(symbol)
-            for _ in range(20):          # wait up to 10s
-                try:
+                    # Close position in Alpaca
                     api.get_position(symbol)
-                    time.sleep(0.5)
+                    api.close_position(symbol)
+                    for _ in range(20):          # wait up to 10s
+                        try:
+                            api.get_position(symbol)
+                            time.sleep(0.5)
+                        except tradeapi.rest.APIError:
+                            break
+                    time.sleep(2)
                 except tradeapi.rest.APIError:
-                    break
-            time.sleep(2)
-        except tradeapi.rest.APIError:
-            pass
+                    pass
 
             # --- LONG ---
             if side == "long":
