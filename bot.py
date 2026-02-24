@@ -221,20 +221,26 @@ def home():
         box.innerHTML = "<span style='color:#aaa'>No closed trades" + (dateVal ? " on " + dateVal : "") + "</span>";
       } else {
         box.innerHTML = data.trades.map(t => {
-          const pnl = parseFloat(t.pnl);
-          const color = pnl >= 0 ? "#00ff00" : "#ff3b3b";
-          const sign  = pnl >= 0 ? "+" : "";
-          return `<div style="margin-bottom:8px; padding:8px; background:rgba(255,255,255,0.04); border-radius:8px;">
-            <span style="color:#fff; font-weight:bold">${t.symbol}</span>
-            <span style="color:#aaa; margin:0 8px">${t.side}</span>
-            <span style="color:#aaa">${t.qty} shares</span>
-            <span style="color:#aaa; margin:0 8px">Entry: $${t.entry_price}</span>
-            <span style="color:#aaa">Exit: $${t.exit_price}</span>
-            <span style="color:${color}; font-weight:bold; margin-left:12px">${sign}$${Math.abs(pnl).toFixed(2)}</span>
-            <span style="color:#555; font-size:12px; margin-left:8px">${t.date || ""} ${t.closed_at}</span>
-            ${t.reason ? `<span style="color:#666; font-size:11px; margin-left:6px">[${t.reason}]</span>` : ""}
-          </div>`;
-        }).join('');
+  const pnl = parseFloat(t.pnl);
+  const color = pnl >= 0 ? "#00ff00" : "#ff3b3b";
+  const sign  = pnl >= 0 ? "+" : "";
+
+  // Highlight if reason includes 'flip'
+  const flipStyle = t.reason && t.reason.toLowerCase().includes("flip")
+                    ? "border:1px solid #ff2bd6; padding:7px;"
+                    : "";
+
+  return `<div style="margin-bottom:8px; padding:8px; background:rgba(255,255,255,0.04); border-radius:8px; ${flipStyle}">
+    <span style="color:#fff; font-weight:bold">${t.symbol}</span>
+    <span style="color:#aaa; margin:0 8px">${t.side}</span>
+    <span style="color:#aaa">${t.qty} shares</span>
+    <span style="color:#aaa; margin:0 8px">Entry: $${t.entry_price}</span>
+    <span style="color:#aaa">Exit: $${t.exit_price}</span>
+    <span style="color:${color}; font-weight:bold; margin-left:12px">${sign}$${Math.abs(pnl).toFixed(2)}</span>
+    <span style="color:#555; font-size:12px; margin-left:8px">${t.date || ""} ${t.closed_at}</span>
+    ${t.reason ? `<span style="color:#666; font-size:11px; margin-left:6px">[${t.reason}]</span>` : ""}
+  </div>`;
+}).join('');
         const total = data.trades.reduce((sum, t) => sum + parseFloat(t.pnl), 0);
         const totalColor = total >= 0 ? "#00ff00" : "#ff3b3b";
         const totalSign  = total >= 0 ? "+" : "";
