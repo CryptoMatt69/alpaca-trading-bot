@@ -518,61 +518,85 @@ def execute_order(symbol, qty, side):
             current_price = float(last_trade.price)
 
             # Build fresh tier qty tracking for this new position
-            # Matches Pine Script: TP1=5, TP2=5, TP3=5 (qty per exit block)
-            # Adjust TIER_QTYS at the top of the file if your Pine qty values change.
-            new_tiers = dict(TIER_QTYS)  # {"tp1":5, "tp2":5, "tp3":5, "sl1":5, "sl2":5}
-
-            def flip_position(close_side_label):
-                """Close existing opposite position and wait for it to clear."""
-                try:
-                    api.get_position(symbol)
-                    api.close_position(symbol)
-                    open_positions.pop(symbol, None)
-                    for _ in range(20):          # wait up to 10s
-                        try:
-                            api.get_position(symbol)
-                            time.sleep(0.5)
-                        except tradeapi.rest.APIError:
-                            break
-                    time.sleep(2)
-                except tradeapi.rest.APIError:
-                    pass
+            new_tiers = dict(TIER_QTYS)
 
             # --- LONG ---
             if side == "long":
+                # Close opposite short if open
+                if current_side == "short":
+                    pos = open_positions.pop(symbol, None)
+                    exit_price = float(last_trade.price)
+                    log_closed_trade(
+                        symbol, "short",
+                        sum(pos["tiers"].values()),
+                        pos["entry_price"],
+                        exit_price,
+                        reason="flip"
+                    )
+
+                # Already have a long open
                 if current_side == "long":
                     return {"status": "long_already_open"}
-                if current_side == "short":
-                    flip_position("short")
 
-                api.submit_order(symbol=symbol, qty=qty, side="buy",
-                                 type="market", time_in_force="day")
+                # Place new long order
+                api.submit_order(
+                    symbol=symbol,
+                    qty=qty,
+                    side="buy",
+                    type="market",
+                    time_in_force="day"
+                )
                 open_positions[symbol] = {
-                    "side":        "long",
+                    "side": "long",
                     "entry_price": current_price,
                     "entry_time": datetime.now(pytz.timezone("US/Eastern")),
-                    "tiers":       new_tiers
+                    "tiers": new_tiers
                 }
-                return {"status": "long_ordered", "symbol": symbol,
-                        "entry_price": current_price, "tiers": new_tiers}
+                return {
+                    "status": "long_ordered",
+                    "symbol": symbol,
+                    "entry_price": current_price,
+                    "tiers": new_tiers
+                }
 
             # --- SHORT ---
             elif side == "short":
+                # Close opposite long if open
+                if current_side == "long":
+                    pos = open_positions.pop(symbol, None)
+                    exit_price = float(last_trade.price)
+                    log_closed_trade(
+                        symbol, "long",
+                        sum(pos["tiers"].values()),
+                        pos["entry_price"],
+                        exit_price,
+                        reason="flip"
+                    )
+
+                # Already have a short open
                 if current_side == "short":
                     return {"status": "short_already_open"}
-                if current_side == "long":
-                    flip_position("long")
 
-                api.submit_order(symbol=symbol, qty=qty, side="sell",
-                                 type="market", time_in_force="day")
+                # Place new short order
+                api.submit_order(
+                    symbol=symbol,
+                    qty=qty,
+                    side="sell",
+                    type="market",
+                    time_in_force="day"
+                )
                 open_positions[symbol] = {
-                    "side":        "short",
+                    "side": "short",
                     "entry_price": current_price,
                     "entry_time": datetime.now(pytz.timezone("US/Eastern")),
-                    "tiers":       new_tiers
+                    "tiers": new_tiers
                 }
-                return {"status": "short_ordered", "symbol": symbol,
-                        "entry_price": current_price, "tiers": new_tiers}
+                return {
+                    "status": "short_ordered",
+                    "symbol": symbol,
+                    "entry_price": current_price,
+                    "tiers": new_tiers
+                }
 
         except Exception as e:
             print(f"Execute order error {symbol}: {e}")
