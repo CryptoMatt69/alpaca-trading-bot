@@ -31,7 +31,7 @@ api = tradeapi.REST(API_KEY, API_SECRET, BASE_URL, api_version="v2")
 #       "entry_price": 150.00,
 #       "tiers": {
 #           "tp1": 5, "tp2": 5, "tp3": 5,   # qty remaining per tier
-#           "sl1": 8, "sl2": 7
+#           "sl1": 5, "sl2": 10
 #       }
 #   }
 # }
@@ -81,7 +81,7 @@ def log_closed_trade(symbol, side, qty, entry_price, exit_price, reason=""):
     print(f"Logged closed trade: {symbol} {side.upper()} {qty}sh entry={entry_price:.2f} exit={exit_price:.2f} pnl={pnl:.2f} ({reason})")
 
 # ----------------------------
-TP_PERCENT = [0.015, 0.02, 0.03]   # 1.5%, 2%, 3%
+TP_PERCENT = [0.006, 0.012, 0.03]   # 0.6%, 1.2%, 3%
 SL_PERCENT = [0.006, 0.01]         # 0.6%, 1%
 
 # How many shares to close at each tier (must sum to tradeQty from Pine)
@@ -90,8 +90,8 @@ TIER_QTYS = {
     "tp1": 5,
     "tp2": 5,
     "tp3": 5,
-    "sl1": 8,
-    "sl2": 7,
+    "sl1": 5,
+    "sl2": 10,
 }
 
 # ----------------------------
