@@ -377,6 +377,7 @@ def api_closed_trades():
     return jsonify({"trades": list(reversed(filtered))})
 
 # ----------------------------
+# ----------------------------
 @app.route("/webhook", methods=["POST"])
 def webhook():
     try:
@@ -388,20 +389,24 @@ def webhook():
         if not symbol or not side:
             return jsonify({"error": "Missing symbol or side"}), 400
 
+        # Handle TP/SL alerts first
+        tp_sl_keys = [
+            "close_long_tp1", "close_long_tp2", "close_long_tp3",
+            "close_short_tp1","close_short_tp2","close_short_tp3",
+            "close_long_sl1", "close_long_sl2",
+            "close_short_sl1","close_short_sl2"
+        ]
+        if side in tp_sl_keys:
+            result = execute_close(symbol, side)
+            return jsonify(result)
+
+        # Regular buy/sell
         if side == "buy":
             side = "long"
         elif side == "sell":
             side = "short"
-
-        # TP/SL close alerts from Pine Script
-        if side in [
-            "close_long_tp1",  "close_long_tp2",  "close_long_tp3",
-            "close_short_tp1", "close_short_tp2", "close_short_tp3",
-            "close_long_sl1",  "close_long_sl2",
-            "close_short_sl1", "close_short_sl2",
-        ]:
-            result = execute_close(symbol, side)
-            return jsonify(result)
+        else:
+            return jsonify({"error": f"Invalid side: {side}"}), 400
 
         result = execute_order(symbol, qty, side)
         return jsonify(result)
@@ -411,13 +416,48 @@ def webhook():
         return jsonify({"error": str(e)}), 500
 
 # ----------------------------
+def execute_order(symbol, qty, side):
+    lock = get_lock(symbol)
+    with lock:
+        try:
+            current_pos  = open_positions.get(symbol, {})
+            current_side = current_pos.get("side")
+            last_trade   = api.get_latest_trade(symbol)
+            current_price = float(last_trade.price)
+            new_tiers = dict(TIER_QTYS)
+
+            # Close opposite position if it exists
+            if current_side and current_side != side:
+                try:
+                    api.close_position(symbol)
+                    log_closed_trade(symbol, current_side, sum(current_pos["tiers"].values()),
+                                     current_pos["entry_price"], current_price, reason="flip_position")
+                    open_positions.pop(symbol, None)
+                    time.sleep(1)
+                except Exception as e:
+                    print(f"Error closing opposite position {symbol}: {e}")
+
+            # Already open same side?
+            if current_side == side:
+                return {"status": f"{side}_already_open"}
+
+            order_side = "buy" if side == "long" else "sell"
+            api.submit_order(symbol=symbol, qty=qty, side=order_side, type="market", time_in_force="day")
+            open_positions[symbol] = {
+                "side": side,
+                "entry_price": current_price,
+                "entry_time": datetime.now(pytz.timezone("US/Eastern")),
+                "tiers": new_tiers
+            }
+            print(f"[ORDER] {side.upper()} {symbol} {qty} shares @ {current_price}")
+            return {"status": f"{side}_ordered", "symbol": symbol, "entry_price": current_price, "tiers": new_tiers}
+
+        except Exception as e:
+            print(f"Execute order error {symbol}: {e}")
+            return {"error": str(e)}
+
+# ----------------------------
 def execute_close(symbol, alert_type):
-    """
-    Called by TradingView TP/SL alerts.
-    Reads the remaining qty for the triggered tier from open_positions,
-    submits the close order, then decrements the tier so repeat alerts are no-ops.
-    Logs every close (partial or full) to closed_trades.json with PnL and hold time.
-    """
     lock = get_lock(symbol)
     with lock:
         try:
@@ -430,77 +470,39 @@ def execute_close(symbol, alert_type):
             entry_price = pos.get("entry_price", 0.0)
             entry_time  = pos.get("entry_time", datetime.now(pytz.timezone("US/Eastern")))
 
-            # Parse alert type -> tier key
-            parts = alert_type.split("_")   # ["close","long","tp1"] etc
-            tier_key = parts[-1]            # "tp1", "tp2", "tp3", "sl1", "sl2"
-
+            tier_key = alert_type.split("_")[-1]
             close_qty = tiers.get(tier_key, 0)
             if close_qty <= 0:
                 return {"status": "tier_already_closed", "tier": tier_key, "symbol": symbol}
 
-            # Validate direction matches
-            expected_direction = "long" if "long" in alert_type else "short"
-            if side != expected_direction:
+            # Validate alert direction
+            expected_side = "long" if "long" in alert_type else "short"
+            if side != expected_side:
                 return {"status": "direction_mismatch", "symbol": symbol,
-                        "expected": expected_direction, "actual": side}
+                        "expected": expected_side, "actual": side}
 
             order_side = "sell" if side == "long" else "buy"
+            api.submit_order(symbol=symbol, qty=close_qty, side=order_side, type="market", time_in_force="day")
 
-            # Submit the market close order
-            api.submit_order(
-                symbol=symbol,
-                qty=close_qty,
-                side=order_side,
-                type="market",
-                time_in_force="day"
-            )
+            tiers[tier_key] = 0  # mark this tier as closed
 
-            # Zero out this tier so duplicate alerts don't fire again
-            tiers[tier_key] = 0
-
-            # Get exit price
             try:
                 last_trade = api.get_latest_trade(symbol)
                 exit_price = float(last_trade.price)
             except:
                 exit_price = 0.0
 
-            # Compute PnL
-            pnl_dollar = (exit_price - entry_price) * close_qty if side == "long" else (entry_price - exit_price) * close_qty
-            pnl_percent = (exit_price - entry_price) / entry_price * 100 if side == "long" else (entry_price - exit_price) / entry_price * 100
-
-            # How long held
+            pnl = (exit_price - entry_price) * close_qty if side == "long" else (entry_price - exit_price) * close_qty
             held_seconds = int((datetime.now(pytz.timezone("US/Eastern")) - entry_time).total_seconds())
 
-            # Log every partial close
-            closed_trades.append({
-                "symbol": symbol,
-                "side": side.upper(),
-                "qty": close_qty,
-                "entry_price": f"{entry_price:.2f}",
-                "exit_price": f"{exit_price:.2f}",
-                "pnl": f"{pnl_dollar:.2f}",
-                "pnl_percent": f"{pnl_percent:.2f}",
-                "held_seconds": held_seconds,
-                "closed_at": datetime.now(pytz.timezone("US/Eastern")).strftime("%I:%M %p EST"),
-                "date": datetime.now(pytz.timezone("US/Eastern")).strftime("%Y-%m-%d"),
-                "reason": tier_key
-            })
-            save_trades()
-            print(f"[CLOSE] {symbol} {tier_key} qty={close_qty} PnL=${pnl_dollar:.2f} ({pnl_percent:.2f}%) held {held_seconds}s")
+            log_closed_trade(symbol, side, close_qty, entry_price, exit_price, reason=tier_key)
 
-            # If all tiers exhausted, remove position
-            total_remaining = sum(tiers.values())
-            if total_remaining <= 0:
+            # Remove position if all tiers closed
+            if sum(tiers.values()) <= 0:
                 open_positions.pop(symbol, None)
 
-            return {
-                "status": "closed",
-                "symbol": symbol,
-                "tier": tier_key,
-                "qty_closed": close_qty,
-                "remaining_qty": total_remaining
-            }
+            print(f"[CLOSE] {symbol} {tier_key} qty={close_qty} PnL=${pnl:.2f}")
+            return {"status": "closed", "symbol": symbol, "tier": tier_key, "qty_closed": close_qty, "remaining_qty": sum(tiers.values())}
 
         except Exception as e:
             print(f"Execute close error {symbol}: {e}")
