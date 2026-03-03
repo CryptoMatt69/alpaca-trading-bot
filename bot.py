@@ -381,34 +381,43 @@ def api_closed_trades():
 @app.route("/webhook", methods=["POST"])
 def webhook():
     try:
-        data   = request.get_json(force=True)
+        if not request.is_json:
+            return jsonify({"error": "Request must be JSON"}), 400
+
+        data = request.get_json()
         symbol = data.get("symbol")
-        qty    = int(data.get("qty", 1))
-        side   = data.get("side", "").lower()
+        side   = data.get("side")
+        qty    = data.get("qty", 1)
 
         if not symbol or not side:
             return jsonify({"error": "Missing symbol or side"}), 400
 
-        # Handle TP/SL alerts first
+        # Ensure qty is an integer
+        try:
+            qty = int(qty)
+        except:
+            qty = 1
+
+        side_lower = side.lower()
         tp_sl_keys = [
             "close_long_tp1", "close_long_tp2", "close_long_tp3",
             "close_short_tp1","close_short_tp2","close_short_tp3",
             "close_long_sl1", "close_long_sl2",
             "close_short_sl1","close_short_sl2"
         ]
-        if side in tp_sl_keys:
-            result = execute_close(symbol, side)
+
+        if side_lower in tp_sl_keys:
+            result = execute_close(symbol, side_lower)
             return jsonify(result)
 
-        # Regular buy/sell
-        if side == "buy":
-            side = "long"
-        elif side == "sell":
-            side = "short"
+        if side_lower == "buy":
+            side_lower = "long"
+        elif side_lower == "sell":
+            side_lower = "short"
         else:
             return jsonify({"error": f"Invalid side: {side}"}), 400
 
-        result = execute_order(symbol, qty, side)
+        result = execute_order(symbol, qty, side_lower)
         return jsonify(result)
 
     except Exception as e:
