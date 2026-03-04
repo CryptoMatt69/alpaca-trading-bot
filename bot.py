@@ -381,10 +381,9 @@ def api_closed_trades():
 @app.route("/webhook", methods=["POST"])
 def webhook():
     try:
-        if not request.is_json:
-            return jsonify({"error": "Request must be JSON"}), 400
-
-        data = request.get_json()
+        data = request.get_json(force=True, silent=True)
+        if not data:
+            return jsonify({"error": "Invalid JSON body"}), 400
         symbol = data.get("symbol")
         side   = data.get("side")
         qty    = data.get("qty", 1)
